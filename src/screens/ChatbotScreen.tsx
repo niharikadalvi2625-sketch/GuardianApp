@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,6 +9,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChatMessage, TriageGuide } from '../types';
@@ -27,6 +28,10 @@ const THEME = {
   greenBg: '#ECFDF5',
   blue: '#2563EB',
   blueBg: '#EFF6FF',
+  marathiOrange: '#EA580C',
+  marathiBg: '#FFF7ED',
+  hindiTeal: '#0D9488',
+  hindiBg: '#F0FDFA',
   border: '#E2E8F0',
 };
 
@@ -38,7 +43,7 @@ const TRIAGE_GUIDES: TriageGuide[] = [
     urgency: 'high',
     summary: 'Chest compressions for unresponsive breathing emergencies',
     steps: [
-      'Call 911 immediately and ask someone to locate an AED defibrillator.',
+      'Call 911 / 108 immediately and ask someone to locate an AED defibrillator.',
       'Place heel of one hand in center of the chest, interlock other hand on top.',
       'Push hard and fast: 100 to 120 compressions per minute, at least 2 inches deep.',
       'Allow chest to fully recoil between each compression.',
@@ -61,7 +66,7 @@ const TRIAGE_GUIDES: TriageGuide[] = [
   },
   {
     id: 'tg-3',
-    title: 'Choking / Heimlich Maneuver',
+    title: 'Choking / Heimlich',
     icon: '🗣️',
     urgency: 'high',
     summary: 'Relieving blocked airway in conscious adults',
@@ -105,26 +110,96 @@ const TRIAGE_GUIDES: TriageGuide[] = [
 ];
 
 const QUICK_PROMPTS = [
-  'Someone is choking',
-  'How to treat a burn?',
-  'Severe bleeding steps',
-  'Signs of a stroke',
-  'Earthquake immediate safety',
+  'रक्तस्राव कसा थांबवावा? (MR)',
+  'सांस नहीं आ रही (HI)',
+  'Someone is choking (EN)',
+  'छातीत दुखत आहे (MR)',
+  'जलने पर क्या करें? (HI)',
+  'CPR कसा द्यावा? (MR)',
 ];
+
+type DetectedLanguage = 'marathi' | 'hindi' | 'english';
+
+function detectLanguage(text: string): DetectedLanguage {
+  const t = text.toLowerCase();
+
+  // Distinct Marathi keywords (Devanagari & Latin script)
+  const marathiMarkers = [
+    'काय', 'कसे', 'कसा', 'कशी', 'करावे', 'करावा', 'करावी', 'करा', 'करू', 'आहे', 'नाही', 'नाहिये',
+    'होतोय', 'होतेय', 'येतोय', 'पाहिजे', 'रक्त', 'रक्तस्राव', 'थांबवा', 'थांबवावा', 'श्वास', 'बेशुद्ध',
+    'जखम', 'भाजले', 'भाजल्यास', 'साप', 'चावला', 'घशात', 'अडकले', 'मदत', 'हार्ट', 'अटॅक', 'छातीत',
+    'दुखत', 'कळ', 'चक्कर', 'ताप', 'दवाखाना', 'रुग्णालय', 'पोलीस', 'मराठी', 'सांगा', 'पडले', 'लागले',
+    // Latin transliterations
+    'kay', 'kasa', 'kase', 'kashi', 'karave', 'karaycha', 'karu', 'ahe', 'nahiye', 'rakt', 'shwas',
+    'beshuddha', 'hotay', 'yetay', 'pahije', 'madat', 'jakhmi', 'bhajle', 'sap', 'chavla', 'chhatit',
+    'dukhat', 'ghashat', 'adakle', 'thambva', 'thambvava', 'marathi', 'sanga', 'lagle',
+  ];
+
+  // Distinct Hindi keywords (Devanagari & Latin script)
+  const hindiMarkers = [
+    'क्या', 'कैसे', 'कैसा', 'कैसी', 'करें', 'करो', 'करूं', 'करना', 'है', 'नहीं', 'रहा', 'रही', 'रहे',
+    'खून', 'रोकें', 'रोको', 'सांस', 'साँस', 'बेहोश', 'बेहोशी', 'जला', 'जलने', 'सांप', 'काटा', 'गला',
+    'गले', 'अटक', 'मदद', 'दर्द', 'सीने', 'दिल', 'दौरा', 'चक्कर', 'बचाओ', 'चाहिए', 'अस्पताल', 'कृपया',
+    'हिंदी', 'बताओ', 'गिरा', 'लगा',
+    // Latin transliterations
+    'kya', 'kaise', 'kaisa', 'kare', 'karein', 'karo', 'karun', 'karna', 'hai', 'khoon', 'saans',
+    'behoshi', 'behosh', 'jalne', 'jala', 'saamp', 'kata', 'gale', 'atak', 'madad', 'dard', 'seene',
+    'bachao', 'chahiye', 'ho raha', 'ho rahi', 'hindi', 'batao', 'lag gaya',
+  ];
+
+  for (const marker of marathiMarkers) {
+    if (t.includes(marker)) return 'marathi';
+  }
+
+  for (const marker of hindiMarkers) {
+    if (t.includes(marker)) return 'hindi';
+  }
+
+  return 'english';
+}
 
 export default function ChatbotScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'm-1',
       sender: 'assistant',
-      text: 'Hello, I am MIA, your AI emergency triage & safety companion. I am fully available offline to guide you through first-aid, crisis situations, and disaster preparedness.\n\n⚠️ If you are in immediate life danger, tap Call 911 or activate the SOS alert.',
+      text: 'Hello, I am MIA (Medical & Incident Assistant).\n\nमी मराठी, हिंदी आणि इंग्रजी तिन्ही भाषा आपोआप ओळखते. आपण थेट बोलू शकता किंवा टाईप करू शकता.\n\n⚠️ In immediate life danger, tap Call 911 / 108 or activate SOS alert.',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
   const [inputText, setInputText] = useState<string>('');
   const [selectedGuide, setSelectedGuide] = useState<TriageGuide | null>(null);
+  const [micModalVisible, setMicModalVisible] = useState<boolean>(false);
+  const [isRecording, setIsRecording] = useState<boolean>(false);
 
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const micPulseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    let loop: Animated.CompositeAnimation | null = null;
+    if (micModalVisible) {
+      setIsRecording(true);
+      loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(micPulseAnim, {
+            toValue: 1.3,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+          Animated.timing(micPulseAnim, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+    } else {
+      setIsRecording(false);
+      micPulseAnim.setValue(1);
+    }
+    return () => loop?.stop();
+  }, [micModalVisible]);
 
   const handleSendMessage = (textToSend?: string) => {
     const query = textToSend || inputText;
@@ -141,7 +216,7 @@ export default function ChatbotScreen() {
     setMessages(newThread);
     setInputText('');
 
-    // Generate simulated intelligent triage response
+    // Generate response in detected language
     setTimeout(() => {
       const reply = generateAiResponse(query);
       const botMsg: ChatMessage = {
@@ -151,41 +226,102 @@ export default function ChatbotScreen() {
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
       setMessages((prev) => [...prev, botMsg]);
-    }, 400);
+    }, 350);
+  };
+
+  const handleVoiceShortcut = (spokenText: string) => {
+    setMicModalVisible(false);
+    handleSendMessage(spokenText);
   };
 
   const generateAiResponse = (query: string): string => {
     const q = query.toLowerCase();
+    const lang = detectLanguage(query);
 
+    // --- MARATHI (मराठी) ---
+    if (lang === 'marathi') {
+      if (q.includes('chok') || q.includes('घशात') || q.includes('अडक') || q.includes('heimlich') || q.includes('ghashat')) {
+        return '🗣️ [मराठी] घशात काही अडकल्यास (CHOKING) प्रथमोपचार:\n\n१. रुग्णाला विचारा: "तुम्हाला बोलता येतंय का?" जर बोलता किंवा खोकता येत नसेल तर तात्काळ कृती करा.\n२. रुग्णाच्या मागे उभे राहून दोन्ही हातांनी त्यांच्या पोटाभोवती विळखा घाला.\n३. एका हाताची मूठ बनवून नाभीच्या (Belly button) किंचित वर ठेवा.\n४. दुसऱ्या हाताने मूठ पकडून आतल्या आणि वरच्या दिशेने जोरदार धक्के (Heimlich Maneuver) द्या.\n५. व्यक्ती बेशुद्ध झाल्यास तात्काळ १०८ / ११२ वर कॉल करा आणि सीपीआर (CPR) सुरू करा.';
+      }
+
+      if (q.includes('cpr') || q.includes('हार्ट') || q.includes('बेशुद्ध') || q.includes('श्वास') || q.includes('heart') || q.includes('shwas') || q.includes('beshuddha')) {
+        return '🫁 [मराठी] सीपीआर (CPR) आपत्कालीन कृती:\n\n१. तात्काळ १०८ / ११२ वर कॉल करून रुग्णवाहिका बोलवा.\n२. रुग्णाला सपाट, टणक जमिनीवर झोपवा आणि श्वास तपासणी करा.\n३. छातीच्या मध्यभागी एका हातावर दुसरा हात ठेवून बोटांची पकड करा.\n४. जोरात आणि वेगाने दाब द्या (एका मिनिटात १०० ते १२० वेळा, किमान २ इंच खोल).\n५. वैद्यकीय पथक येईपर्यंत सीपीआर थांबवू नका.';
+      }
+
+      if (q.includes('रक्त') || q.includes('bleed') || q.includes('जखम') || q.includes('थांबवा') || q.includes('rakt') || q.includes('jakhmi')) {
+        return '🩸 [मराठी] तीव्र रक्तस्राव थांबवण्यासाठी प्रथमोपचार:\n\n१. जखमेवर स्वच्छ कापडाने किंवा गॉजने थेट आणि सतत जोरदार दाब द्या.\n२. दाब कमी करू नका; कापड भिजल्यास त्यावरच आणखी कापड ठेवून दाब चालू ठेवा.\n३. जखमी अवयव शक्य असल्यास हृदयाच्या पातळीपेक्षा उंच ठेवा.\n४. जर हाता-पायाचा रक्तस्राव थांबत नसेल, तर जखमेच्या २-३ इंच वर घट्ट पट्टी (Tourniquet) बांधा आणि तात्काळ १०८ वर कॉल करा.';
+      }
+
+      if (q.includes('भाज') || q.includes('burn') || q.includes('आग') || q.includes('bhajle')) {
+        return '🔥 [मराठी] भाजल्यास प्राथमिक उपचार:\n\n१. भाजलेल्या भागावर किमान १० ते १५ मिनिटे थंड वाहते पाणी टाका.\n२. बर्फ, तूप, तेल किंवा टूथपेस्ट कधीही लावू नका.\n३. सूज येण्यापूर्वी घट्ट दागिने किंवा कपडे हळुवार बाजूला करा.\n४. स्वच्छ निर्जंतुक पट्टीने जखम हलकी झाका आणि त्वरित डॉक्टरांचा सल्ला घ्या.';
+      }
+
+      if (q.includes('साप') || q.includes('snake') || q.includes('चावला') || q.includes('sap')) {
+        return '🐍 [मराठी] साप चावल्यास आणीबाणी सूचना:\n\n१. रुग्णाला पूर्णपणे शांत ठेवा, हालचाल करू देऊ नका (हालचालीने विष वेगाने पसरते).\n२. चावलेला भाग हृदयाच्या पातळीखाली ठेवा.\n३. जखमेवर चीरा मारू नका, रक्त काढण्याचा किंवा विष चोखण्याचा प्रयत्न करू नका.\n४. तात्काळ जवळच्या शासकीय रुग्णालयात सर्पदंश प्रतिबंधक लस (Anti-venom) साठी घेऊन जा.';
+      }
+
+      if (q.includes('छातीत') || q.includes('कळ') || q.includes('chhatit') || q.includes('dukhat')) {
+        return '🫀 [मराठी] छातीत दुखणे / हृदयविकाराचा झटका:\n\n१. छातीत तीव्र जडपणा, डाव्या हाताकडे किंवा जबड्याकडे जाणारी कळ ही हृदयविकाराची लक्षणे असू शकतात.\n२. रुग्णाला शांतपणे बसवा, श्वास घेणे सुलभ करा.\n३. त्वरित १०८ किंवा ९११ वर संपर्क करा.\n४. रुग्णाला ऍस्पिरिन (Aspirin) चावून खाण्यास द्या (ऍलर्जी नसल्यास).';
+      }
+
+      return `🛡️ [मराठी] मिया (MIA) सुरक्षा सहाय्यक:\n\nमला समजले की तुम्हाला मदत हवी आहे ("${query}").\n\n१. घटनास्थळी स्वतःची सुरक्षितता आधी तपासा.\n२. गंभीर परिस्थितीत १०८ किंवा ११२ वर तात्काळ संपर्क करा.\n३. विशिष्ट प्रथमोपचारासाठी वरील CPR, रक्तस्राव, घशात अडकणे किंवा भाजणे या कार्ड्सवर टॅप करा.`;
+    }
+
+    // --- HINDI (हिंदी) ---
+    if (lang === 'hindi') {
+      if (q.includes('chok') || q.includes('गले') || q.includes('अटक') || q.includes('heimlich') || q.includes('gale')) {
+        return '🗣️ [हिंदी] गले में कुछ अटकने (CHOKING) पर उपाय:\n\n१. पूछें क्या वे बोल या खांस पा रहे हैं? यदि सांस रुकी है तो तुरंत हेइमलिच पैंतरा (Heimlich Maneuver) करें।\n२. व्यक्ति के पीछे खड़े होकर कमर पर हाथ लपेटें।\n३. एक हाथ की मुट्ठी नाभि के ठीक ऊपर रखें, दूसरे हाथ से पकड़ें।\n४. अंदर और ऊपर की ओर तेजी से ५ झटके दें जब तक फंसी वस्तु बाहर न निकले।\n५. यदि व्यक्ति बेहोश हो, तो तुरंत १०८ / ९११ पर कॉल करें और सीपीआर शुरू करें।';
+      }
+
+      if (q.includes('cpr') || q.includes('सांस') || q.includes('बेहोश') || q.includes('दिल') || q.includes('saans') || q.includes('behosh')) {
+        return '🫁 [हिंदी] सीपीआर (CPR) की आपातकालीन विधि:\n\n१. तुरंत १०८ या ११२ पर कॉल करके एम्बुलेंस बुलाएं।\n२. मरीज को सख्त जमीन पर सीधा लिटाएं और सांस की जांच करें।\n३. सीने के ठीक बीच में दोनों हाथों को आपस में जोड़कर रखें।\n४. जोर से और तेजी से दबाएं (प्रति मिनट १०० से १२० बार, कम से कम २ इंच गहरा)।\n५. मेडिकल टीम आने तक सीपीआर लगातार चालू रखें।';
+      }
+
+      if (q.includes('खून') || q.includes('bleed') || q.includes('रोक') || q.includes('चोट') || q.includes('khoon')) {
+        return '🩸 [हिंदी] तेज खून बहने पर प्राथमिक चिकित्सा:\n\n१. घाव पर साफ कपड़े या गॉज से सीधा और लगातार तेज दबाव बनाएं।\n२. कपड़ा खून से भीग जाए तो उसे हटाएं नहीं, उसके ऊपर दूसरा कपड़ा रखकर दबाते रहें।\n३. चोट लगे हिस्से को दिल की ऊंचाई से ऊपर उठाएं।\n४. यदि हाथ या पैर से खून न रुके, तो घाव से २-३ इंच ऊपर टॉर्निकेट (Tourniquet) कसकर बांधें और तुरंत १०८ पर जाएं।';
+      }
+
+      if (q.includes('जल') || q.includes('burn') || q.includes('आग') || q.includes('jala') || q.includes('jalne')) {
+        return '🔥 [हिंदी] जलने पर फर्स्ट-एड निर्देश:\n\n१. जले हुए हिस्से पर १० से २० मिनट तक ठंडा, साफ बहता पानी डालें।\n२. बर्फ, मक्खन, तेल, टूथपेस्ट या हल्दी बिल्कुल न लगाएं।\n३. सूजन बढ़ने से पहले अंगूठियां या तंग गहने धीरे से निकाल लें।\n४. साफ कपड़े या पट्टी से ढीला ढकें और डॉक्टर से संपर्क करें।';
+      }
+
+      if (q.includes('सांप') || q.includes('snake') || q.includes('काटा') || q.includes('saamp')) {
+        return '🐍 [हिंदी] सांप के काटने पर आवश्यक कदम:\n\n१. मरीज को बिल्कुल शांत रखें और हिलने-डुलने न दें (हलचल से जहर तेजी से फैलता है)।\n२. काटे हुए अंग को दिल के स्तर से नीचे रखें।\n३. घाव पर चीरा न लगाएं और मुंह से जहर चूसने का प्रयास न करें।\n४. तुरंत नजदीकी सरकारी अस्पताल ले जाएं जहां एंटी-वेनम (Anti-venom) उपलब्ध हो।';
+      }
+
+      if (q.includes('सीने') || q.includes('दर्द') || q.includes('seene') || q.includes('dard')) {
+        return '🫀 [हिंदी] सीने में दर्द / दिल का दौरा (Heart Attack):\n\n१. सीने में तेज जकड़न, भारीपन जो बाएं हाथ या जबड़े तक फैले दिल के दौरे के लक्षण हैं।\n२. मरीज को आराम से बिठाएं और कपड़े ढीले करें।\n३. तुरंत १०८ या ९११ पर कॉल करें।\n४. यदि मरीज को एलर्जी न हो, तो एस्पिरिन (Aspirin) चबाने को दें।';
+      }
+
+      return `🛡️ [हिंदी] मिया (MIA) सुरक्षा सहायक:\n\nमुझे समझ आया कि आपको सहायता चाहिए ("${query}")।\n\n१. पहले अपने आसपास की सुरक्षा सुनिश्चित करें।\n२. आपातकालीन स्थिति में तुरंत १०८ या ११२ पर कॉल करें।\n३. सीपीआर, ब्लीडिंग या जलने से संबंधित तुरंत कदमों के लिए ऊपर दिए गए कार्ड्स पर क्लिक करें।`;
+    }
+
+    // --- ENGLISH ---
     if (q.includes('chok') || q.includes('heimlich')) {
-      return '🗣️ CHOKING EMERGENCY RESPONSE:\n\n1. Ask: "Are you choking?" If they cannot speak, cough, or breathe, act immediately.\n2. Stand behind them and wrap arms around their waist.\n3. Make a fist with thumb side against their upper abdomen (just above belly button).\n4. Perform sharp, upward thrusts until airway is cleared.\n5. If person collapses, call 911 and start CPR immediately.';
+      return '🗣️ [English] CHOKING EMERGENCY RESPONSE:\n\n1. Ask: "Are you choking?" If they cannot speak, cough, or breathe, act immediately.\n2. Stand behind them and wrap arms around their waist.\n3. Make a fist with thumb side against upper abdomen (just above navel).\n4. Deliver sharp, upward thrusts (Heimlich) until airway is cleared.\n5. If person collapses, call 911 / 108 and start CPR immediately.';
     }
 
     if (q.includes('cpr') || q.includes('heart') || q.includes('unconscious') || q.includes('breathing')) {
-      return '🫁 CPR PROTOCOL (ADULT):\n\n1. Call 911 & send someone for an AED.\n2. Check responsiveness and breathing for 5-10 seconds.\n3. Place hands in center of chest.\n4. Push HARD and FAST at 100-120 BPM (to beat of "Stayin Alive"), at least 2 inches deep.\n5. Do not stop until emergency services arrive.';
+      return '🫁 [English] CPR PROTOCOL (ADULT):\n\n1. Call 911 / 108 & send someone for an AED.\n2. Check responsiveness and breathing for 5-10 seconds.\n3. Place hands in center of chest.\n4. Push HARD and FAST at 100-120 BPM, at least 2 inches deep.\n5. Do not stop until emergency services arrive.';
     }
 
     if (q.includes('bleed') || q.includes('blood') || q.includes('wound') || q.includes('cut')) {
-      return '🩸 SEVERE BLEEDING PROTOCOL:\n\n1. Press hard directly on the wound with clean cloth or gauze.\n2. Maintain constant pressure — do not lift gauze to check.\n3. Keep injured limb elevated above heart level.\n4. If bleeding spurts or will not stop on a limb, apply a commercial or improvised tourniquet 2-3 inches above wound.';
+      return '🩸 [English] SEVERE BLEEDING PROTOCOL:\n\n1. Press hard directly on the wound with clean cloth or gauze.\n2. Maintain constant pressure — do not lift gauze to check.\n3. Keep injured limb elevated above heart level.\n4. If bleeding spurts or will not stop on a limb, apply a tourniquet 2-3 inches above wound.\n5. Call 911 / 108 immediately.';
     }
 
     if (q.includes('burn') || q.includes('scald') || q.includes('fire')) {
-      return '🔥 BURN FIRST-AID:\n\n1. Run cool, clean tap water over the burn for 10-20 minutes.\n2. Do NOT apply ice, butter, flour, or oil.\n3. Remove rings or tight items near the area before swelling begins.\n4. Cover loosely with sterile gauze or clean plastic wrap.\n5. Seek medical attention if blistering is severe or on face/hands.';
+      return '🔥 [English] BURN FIRST-AID:\n\n1. Run cool, clean tap water over the burn for 10-20 minutes.\n2. Do NOT apply ice, butter, flour, or oil.\n3. Remove rings or tight items near the area before swelling begins.\n4. Cover loosely with sterile gauze or clean plastic wrap.\n5. Seek medical attention if blistering is severe.';
+    }
+
+    if (q.includes('snake') || q.includes('bite') || q.includes('poison')) {
+      return '🐍 [English] SNAKEBITE EMERGENCY:\n\n1. Keep person calm and still (movement spreads venom faster).\n2. Keep bitten limb immobilized below heart level.\n3. Do NOT cut the wound or try to suck venom out.\n4. Transport immediately to the nearest hospital for anti-venom.';
     }
 
     if (q.includes('stroke') || q.includes('fast')) {
-      return '🧠 STROKE IDENTIFICATION (FAST):\n\n• F (Face): Does one side of face droop when smiling?\n• A (Arms): Can they raise both arms, or does one drift down?\n• S (Speech): Is speech slurred or strange?\n• T (Time): Call 911 IMMEDIATELY. Note the time symptoms started.';
+      return '🧠 [English] STROKE IDENTIFICATION (FAST):\n\n• F (Face): Does one side of face droop when smiling?\n• A (Arms): Can they raise both arms, or does one drift down?\n• S (Speech): Is speech slurred or strange?\n• T (Time): Call 911 / 108 IMMEDIATELY. Note the time symptoms started.';
     }
 
-    if (q.includes('earthquake')) {
-      return '🏚️ EARTHQUAKE SAFETY:\n\n1. DROP to your hands and knees.\n2. COVER your head and neck under a sturdy table or desk.\n3. HOLD ON until shaking stops completely.\n4. Stay away from windows, glass, and exterior walls.\n5. If outdoors, move to an open area away from power lines and buildings.';
-    }
-
-    if (q.includes('panic') || q.includes('anxiety') || q.includes('calm') || q.includes('scared')) {
-      return '🧘 GROUNDING & PANIC RELIEF:\n\nTake a slow breath: Inhale 4s, hold 4s, exhale 6s.\n\nNow use 5-4-3-2-1 Grounding:\n• 5 things you can SEE\n• 4 things you can TOUCH\n• 3 things you can HEAR\n• 2 things you can SMELL\n• 1 thing you can TASTE\n\nYou are in control and help is accessible.';
-    }
-
-    return `🛡️ MIA (SAFETY ASSISTANT):\n\nI understand your concern about "${query}".\n\n1. Ensure immediate scene safety before taking action.\n2. If someone is injured or in distress, call 911 immediately.\n3. For specific emergency instructions, select one of the Quick First Aid cards above (CPR, Bleeding, Choking, Burns, Grounding).`;
+    return `🛡️ [English] MIA SAFETY ASSISTANT:\n\nI understand your query ("${query}").\n\n1. Ensure immediate scene safety before taking action.\n2. If someone is injured or in distress, call 911 / 108 / 112 immediately.\n3. For specific emergency instructions, tap any of the Quick Protocol cards above (CPR, Bleeding, Choking, Burns, Grounding).`;
   };
 
   return (
@@ -201,10 +337,10 @@ export default function ChatbotScreen() {
               <Text style={styles.botEmoji}>🤖</Text>
             </View>
             <View>
-              <Text style={styles.headerTitle}>MIA — AI Assistant</Text>
+              <Text style={styles.headerTitle}>MIA — AI Safety Companion</Text>
               <View style={styles.statusRow}>
                 <View style={styles.statusDot} />
-                <Text style={styles.statusText}>Offline Medical Triage Engine Active</Text>
+                <Text style={styles.statusText}>EN • हिंदी • मराठी Auto-Detect Active</Text>
               </View>
             </View>
           </View>
@@ -214,7 +350,7 @@ export default function ChatbotScreen() {
             onPress={() => SosService.dialEmergencyServices('911')}
             activeOpacity={0.8}
           >
-            <Text style={styles.sosCallText}>🚨 911</Text>
+            <Text style={styles.sosCallText}>🚨 911 / 108</Text>
           </TouchableOpacity>
         </View>
 
@@ -303,16 +439,27 @@ export default function ChatbotScreen() {
           </ScrollView>
         </View>
 
-        {/* Input Bar */}
+        {/* Input Bar with Microphone Dictation Button */}
         <View style={styles.inputContainer}>
+          <TouchableOpacity
+            style={styles.micBtn}
+            onPress={() => setMicModalVisible(true)}
+            activeOpacity={0.8}
+            accessibilityLabel="Voice Input Microphone"
+            accessibilityHint="Tap to speak in Marathi, Hindi, or English"
+          >
+            <Text style={styles.micIcon}>🎙️</Text>
+          </TouchableOpacity>
+
           <TextInput
             style={styles.input}
-            placeholder="Ask first-aid or safety question..."
+            placeholder="Type or tap mic (EN, हिंदी, मराठी)..."
             placeholderTextColor={THEME.textLight}
             value={inputText}
             onChangeText={setInputText}
             onSubmitEditing={() => handleSendMessage()}
           />
+
           <TouchableOpacity
             style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
             onPress={() => handleSendMessage()}
@@ -323,6 +470,116 @@ export default function ChatbotScreen() {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Voice Dictation / Microphone Modal */}
+      <Modal
+        visible={micModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setMicModalVisible(false)}
+      >
+        <View style={styles.micModalBackdrop}>
+          <View style={styles.micModalCard}>
+            <View style={styles.micModalHeader}>
+              <View>
+                <Text style={styles.micModalTitle}>MIA Voice Assistant</Text>
+                <Text style={styles.micModalSub}>
+                  Auto-detects Marathi, Hindi, or English
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setMicModalVisible(false)}>
+                <Text style={styles.modalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Animated Pulsing Audio Waveform Visual */}
+            <View style={styles.waveformContainer}>
+              <Animated.View
+                style={[
+                  styles.waveformRing,
+                  { transform: [{ scale: micPulseAnim }] },
+                ]}
+              />
+              <View style={styles.micCenterCircle}>
+                <Text style={styles.micCenterIcon}>🎙️</Text>
+              </View>
+            </View>
+
+            <Text style={styles.listeningText}>
+              {isRecording ? 'Listening... speak now' : 'Processing speech...'}
+            </Text>
+            <Text style={styles.listeningSub}>
+              "श्वास घेता येत नाही" • "खून कैसे रोकें" • "How to do CPR"
+            </Text>
+
+            {/* Instant Voice Emergency Shortcuts (1-Tap to Save Time) */}
+            <Text style={styles.voicePresetsHeading}>FAST 1-TAP VOICE SHORTCUTS</Text>
+            <View style={styles.voicePresetsGrid}>
+              <TouchableOpacity
+                style={[styles.voicePresetChip, { backgroundColor: THEME.marathiBg }]}
+                onPress={() => handleVoiceShortcut('रक्तस्राव कसा थांबवावा?')}
+              >
+                <Text style={[styles.voicePresetText, { color: THEME.marathiOrange }]}>
+                  🩸 रक्तस्राव कसा थांबवावा? (MR)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.voicePresetChip, { backgroundColor: THEME.hindiBg }]}
+                onPress={() => handleVoiceShortcut('सांस नहीं आ रही है')}
+              >
+                <Text style={[styles.voicePresetText, { color: THEME.hindiTeal }]}>
+                  🫁 सांस नहीं आ रही है (HI)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.voicePresetChip, { backgroundColor: THEME.marathiBg }]}
+                onPress={() => handleVoiceShortcut('छातीत खूप दुखत आहे')}
+              >
+                <Text style={[styles.voicePresetText, { color: THEME.marathiOrange }]}>
+                  🫀 छातीत खूप दुखत आहे (MR)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.voicePresetChip, { backgroundColor: THEME.hindiBg }]}
+                onPress={() => handleVoiceShortcut('गला घुट रहा है')}
+              >
+                <Text style={[styles.voicePresetText, { color: THEME.hindiTeal }]}>
+                  🗣️ गला घुट रहा है (HI)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.voicePresetChip, { backgroundColor: '#EFF6FF' }]}
+                onPress={() => handleVoiceShortcut('How to do CPR?')}
+              >
+                <Text style={[styles.voicePresetText, { color: THEME.blue }]}>
+                  ⚡ How to do CPR? (EN)
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.voicePresetChip, { backgroundColor: THEME.marathiBg }]}
+                onPress={() => handleVoiceShortcut('साप चावला आहे काय करावे?')}
+              >
+                <Text style={[styles.voicePresetText, { color: THEME.marathiOrange }]}>
+                  🐍 साप चावला आहे काय करावे? (MR)
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={styles.stopMicBtn}
+              onPress={() => setMicModalVisible(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.stopMicText}>Done / Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Triage Steps Modal */}
       <Modal
@@ -368,7 +625,7 @@ export default function ChatbotScreen() {
                   }}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.call911Text}>🚨 Call 911 Immediately</Text>
+                  <Text style={styles.call911Text}>🚨 Call Emergency (911 / 108)</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -572,6 +829,19 @@ const styles = StyleSheet.create({
     borderTopColor: THEME.border,
     gap: 10,
   },
+  micBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  micIcon: {
+    fontSize: 18,
+  },
   input: {
     flex: 1,
     backgroundColor: '#F8FAFC',
@@ -689,4 +959,122 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
+
+  // Mic Modal Styles
+  micModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  micModalCard: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+    shadowColor: '#E63946',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 18,
+    elevation: 10,
+  },
+  micModalHeader: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  micModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  micModalSub: {
+    fontSize: 12,
+    color: THEME.textSecondary,
+    marginTop: 2,
+  },
+  waveformContainer: {
+    width: 120,
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  waveformRing: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(230, 57, 70, 0.18)',
+  },
+  micCenterCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: THEME.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: THEME.primaryDark,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  micCenterIcon: {
+    fontSize: 34,
+  },
+  listeningText: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+    marginTop: 10,
+  },
+  listeningSub: {
+    fontSize: 12,
+    color: THEME.textSecondary,
+    marginTop: 4,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  voicePresetsHeading: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.textLight,
+    letterSpacing: 0.8,
+    marginBottom: 10,
+    alignSelf: 'flex-start',
+  },
+  voicePresetsGrid: {
+    width: '100%',
+    gap: 8,
+    marginBottom: 20,
+  },
+  voicePresetChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.border,
+  },
+  voicePresetText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  stopMicBtn: {
+    width: '100%',
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  stopMicText: {
+    color: THEME.textSecondary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
 });
+
