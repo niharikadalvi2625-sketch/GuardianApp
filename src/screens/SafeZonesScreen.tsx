@@ -58,6 +58,7 @@ export default function SafeZonesScreen() {
   const loadLocationAndZones = async () => {
     setLoading(true);
     try {
+      await LocationService.requestPermission();
       const coords = await LocationService.getCurrentLocation();
       setUserCoords(coords);
       const zones = await SafeZoneService.getSafeZones(coords, 'all');
@@ -132,9 +133,9 @@ export default function SafeZonesScreen() {
         <View style={styles.titleRow}>
           <View>
             <Text style={styles.headerTitle}>Safe Zone Finder</Text>
-            <Text style={styles.headerSubtitle}>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
               {userCoords
-                ? `GPS Active (${userCoords.latitude.toFixed(3)}, ${userCoords.longitude.toFixed(3)})`
+                ? `📍 ${LocationService.formatLocationName(userCoords)}`
                 : 'GPS Standby'}
             </Text>
           </View>

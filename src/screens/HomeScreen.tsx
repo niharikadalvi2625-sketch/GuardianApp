@@ -125,10 +125,12 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         <View style={styles.locationCard}>
           <Text style={styles.locationIcon}>📍</Text>
           <View style={styles.locationDetails}>
-            <Text style={styles.locationTitle}>Real-Time GPS Coordinates</Text>
+            <Text style={styles.locationTitle}>
+              {coords ? LocationService.formatLocationName(coords) : 'Current Safe Location'}
+            </Text>
             <Text style={styles.locationSubtitle}>
               {coords
-                ? `${coords.latitude.toFixed(4)}° N, ${Math.abs(coords.longitude).toFixed(4)}° W`
+                ? LocationService.formatCoordinates(coords)
                 : 'Acquiring GPS location...'}
             </Text>
           </View>
@@ -181,32 +183,32 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           <View style={styles.hotlinesRow}>
             <TouchableOpacity
               style={[styles.hotlineBtn, { backgroundColor: '#FEE2E2' }]}
-              onPress={() => handleCall('911')}
+              onPress={() => handleCall('112')}
               activeOpacity={0.8}
             >
               <Text style={styles.hotlineIcon}>👮</Text>
               <Text style={[styles.hotlineLabel, { color: '#B91C1C' }]}>Police</Text>
-              <Text style={styles.hotlineNum}>911</Text>
+              <Text style={styles.hotlineNum}>112</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.hotlineBtn, { backgroundColor: '#FEF3C7' }]}
-              onPress={() => handleCall('911')}
+              onPress={() => handleCall('101')}
               activeOpacity={0.8}
             >
               <Text style={styles.hotlineIcon}>🚒</Text>
               <Text style={[styles.hotlineLabel, { color: '#B45309' }]}>Fire</Text>
-              <Text style={styles.hotlineNum}>911</Text>
+              <Text style={styles.hotlineNum}>101</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.hotlineBtn, { backgroundColor: '#EFF6FF' }]}
-              onPress={() => handleCall('911')}
+              onPress={() => handleCall('108')}
               activeOpacity={0.8}
             >
               <Text style={styles.hotlineIcon}>🚑</Text>
-              <Text style={[styles.hotlineLabel, { color: '#1D4ED8' }]}>Medical</Text>
-              <Text style={styles.hotlineNum}>911</Text>
+              <Text style={[styles.hotlineLabel, { color: '#1D4ED8' }]}>Ambulance</Text>
+              <Text style={styles.hotlineNum}>108</Text>
             </TouchableOpacity>
 
             {primaryContact && (

@@ -20,6 +20,10 @@ export interface LocationCoords {
   longitude: number;
   accuracy?: number;
   timestamp?: number;
+  city?: string;
+  region?: string;
+  country?: string;
+  address?: string;
 }
 
 export type SafeZoneCategory = 'hospital' | 'police' | 'shelter' | 'fire_station';

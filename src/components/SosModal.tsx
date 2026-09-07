@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { LocationCoords, EmergencyContact, UserProfile } from '../types';
 import { SosService } from '../services/sosService';
+import { LocationService } from '../services/locationService';
 
 interface SosModalProps {
   visible: boolean;
@@ -87,10 +88,7 @@ export default function SosModal({
 
   const executeSosTrigger = async () => {
     setIsTriggered(true);
-    const coords = userCoords || {
-      latitude: 37.7749,
-      longitude: -122.4194,
-    };
+    const coords = userCoords || (await LocationService.getCurrentLocation());
 
     const { message } = await SosService.triggerSosAlert(coords);
     setSosMessage(message);
@@ -115,7 +113,7 @@ export default function SosModal({
   };
 
   const handleCall911 = () => {
-    SosService.dialEmergencyServices('911');
+    SosService.dialEmergencyServices('112');
   };
 
   const handleCallPrimary = () => {
@@ -200,8 +198,8 @@ export default function SosModal({
                 <Text style={styles.coordsLabel}>BROADCAST LOCATION</Text>
                 <Text style={styles.coordsValue}>
                   {userCoords
-                    ? `${userCoords.latitude.toFixed(5)}, ${userCoords.longitude.toFixed(5)}`
-                    : '37.77490, -122.41940 (Downtown HQ)'}
+                    ? LocationService.formatCoordinates(userCoords)
+                    : 'Acquiring GPS fix...'}
                 </Text>
                 {profile && (
                   <Text style={styles.medicalNotice}>
@@ -219,7 +217,7 @@ export default function SosModal({
                 >
                   <Text style={styles.callIcon}>🚨</Text>
                   <View>
-                    <Text style={styles.callTitle}>Call 911 (Emergency Dispatch)</Text>
+                    <Text style={styles.callTitle}>Call 112 (Emergency Dispatch)</Text>
                     <Text style={styles.callSub}>Police • Fire • Medical</Text>
                   </View>
                 </TouchableOpacity>

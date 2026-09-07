@@ -1,16 +1,39 @@
 import { Platform, PermissionsAndroid } from 'react-native';
 import { LocationCoords } from '../types';
+import { StorageService } from './storageService';
 
-// Default fallback coordinates (Downtown Metropolitan Area)
+const LOCATION_CACHE_KEY = '@guardian_last_known_coords';
+
+// Default initial coordinates centered around the user's region
 const DEFAULT_COORDS: LocationCoords = {
-  latitude: 37.7749,
-  longitude: -122.4194,
-  accuracy: 10,
+  latitude: 18.5204,
+  longitude: 73.8567,
+  accuracy: 15,
   timestamp: Date.now(),
+  city: 'Pune',
+  region: 'Maharashtra',
+  country: 'India',
+  address: 'Pune, Maharashtra, India',
 };
 
 class LocationServiceImpl {
   private lastKnownLocation: LocationCoords = DEFAULT_COORDS;
+  private permissionGranted: boolean | null = null;
+
+  constructor() {
+    this.initFromCache();
+  }
+
+  private async initFromCache() {
+    try {
+      const cached = await StorageService.getItem(LOCATION_CACHE_KEY);
+      if (cached) {
+        this.lastKnownLocation = JSON.parse(cached);
+      }
+    } catch {
+      // Continue with default
+    }
+  }
 
   /**
    * Request location permissions for Android / iOS
@@ -18,59 +41,227 @@ class LocationServiceImpl {
   async requestPermission(): Promise<boolean> {
     if (Platform.OS === 'android') {
       try {
-        const granted = await PermissionsAndroid.request(
-          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-          {
-            title: 'Guardian App Location Permission',
-            message:
-              'Guardian needs access to your location to find nearby emergency safe zones and provide SOS dispatch.',
-            buttonNeutral: 'Ask Me Later',
-            buttonNegative: 'Cancel',
-            buttonPositive: 'OK',
-          }
-        );
-        return granted === PermissionsAndroid.RESULTS.GRANTED;
+        const finePermission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
+        const coarsePermission = PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION;
+
+        // Check if fine location is already granted
+        const alreadyGranted = await PermissionsAndroid.check(finePermission);
+        if (alreadyGranted) {
+          this.permissionGranted = true;
+          return true;
+        }
+
+        const granted = await PermissionsAndroid.requestMultiple([
+          finePermission,
+          coarsePermission,
+        ]);
+
+        const isGranted =
+          granted[finePermission] === PermissionsAndroid.RESULTS.GRANTED ||
+          granted[coarsePermission] === PermissionsAndroid.RESULTS.GRANTED;
+
+        this.permissionGranted = isGranted;
+        return isGranted;
       } catch (err) {
-        console.warn('Location permission error:', err);
+        console.warn('Location permission request error:', err);
         return false;
       }
     }
-    // iOS and other platforms handle permissions via Info.plist or standard prompts
+    // iOS handles via Info.plist
+    this.permissionGranted = true;
     return true;
   }
 
   /**
-   * Get the current device coordinates or fallback to last known location
+   * Fetch address details from coordinates using OpenStreetMap reverse geocoding
+   */
+  async reverseGeocode(lat: number, lon: number): Promise<Partial<LocationCoords>> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'GuardianSafetyApp/1.0' },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        const addr = data.address || {};
+        const city = addr.city || addr.town || addr.municipality || addr.district || addr.county || '';
+        const suburb = addr.suburb || addr.neighbourhood || addr.residential || '';
+        const region = addr.state || '';
+        const country = addr.country || '';
+        const fullAddress = suburb && city
+          ? `${suburb}, ${city}`
+          : (data.display_name?.split(',').slice(0, 3).join(', ') || `${city}, ${region}`);
+
+        return {
+          city: city || undefined,
+          region: region || undefined,
+          country: country || undefined,
+          address: fullAddress || undefined,
+        };
+      }
+    } catch {
+      // Ignore reverse geocode network failures
+    }
+    return {};
+  }
+
+  /**
+   * Fetch current location using network IP geolocation
+   */
+  private async fetchIpLocation(): Promise<LocationCoords | null> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+      const res = await fetch('https://ipwho.is/', {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.success !== false && data.latitude && data.longitude) {
+          return {
+            latitude: parseFloat(data.latitude),
+            longitude: parseFloat(data.longitude),
+            accuracy: 50,
+            timestamp: Date.now(),
+            city: data.city || 'Pune',
+            region: data.region || 'Maharashtra',
+            country: data.country || 'India',
+            address: `${data.city || 'Pune'}, ${data.region || 'Maharashtra'}, ${data.country || 'India'}`,
+          };
+        }
+      }
+    } catch {
+      // Try secondary endpoint
+      try {
+        const res2 = await fetch('https://ipapi.co/json/');
+        if (res2.ok) {
+          const data2 = await res2.json();
+          if (data2 && data2.latitude && data2.longitude) {
+            return {
+              latitude: parseFloat(data2.latitude),
+              longitude: parseFloat(data2.longitude),
+              accuracy: 50,
+              timestamp: Date.now(),
+              city: data2.city || 'Pune',
+              region: data2.region || 'Maharashtra',
+              country: data2.country_name || 'India',
+              address: `${data2.city || 'Pune'}, ${data2.region || 'Maharashtra'}`,
+            };
+          }
+        }
+      } catch {
+        // Fallback failed
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Get the current device coordinates using hybrid GPS + IP fallback
    */
   async getCurrentLocation(): Promise<LocationCoords> {
-    return new Promise((resolve) => {
+    // 1. Ensure permission is requested
+    if (this.permissionGranted === null) {
+      await this.requestPermission();
+    }
+
+    // 2. Try native GPS via navigator.geolocation if available
+    const gpsLocation = await new Promise<LocationCoords | null>((resolve) => {
       const globalNav = (typeof globalThis !== 'undefined'
         ? (globalThis as unknown as { navigator?: { geolocation?: any } }).navigator
         : undefined);
 
       if (globalNav && globalNav.geolocation) {
+        let resolved = false;
+        const timer = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            resolve(null);
+          }
+        }, 4000);
+
         globalNav.geolocation.getCurrentPosition(
           (position: any) => {
-            const coords: LocationCoords = {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-              timestamp: position.timestamp,
-            };
-            this.lastKnownLocation = coords;
-            resolve(coords);
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timer);
+              resolve({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy || 10,
+                timestamp: position.timestamp || Date.now(),
+              });
+            }
           },
-          (error: any) => {
-            console.warn('Geolocation lookup failed, using default coords:', error?.message);
-            resolve(this.lastKnownLocation);
+          () => {
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timer);
+              resolve(null);
+            }
           },
-          { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+          { enableHighAccuracy: true, timeout: 3500, maximumAge: 30000 }
         );
       } else {
-        // Fallback for native runtime without active geolocation native module
-        resolve(this.lastKnownLocation);
+        resolve(null);
       }
     });
+
+    if (gpsLocation) {
+      // Reverse geocode GPS coordinates to get human-readable city & area
+      const geoInfo = await this.reverseGeocode(gpsLocation.latitude, gpsLocation.longitude);
+      this.lastKnownLocation = {
+        ...gpsLocation,
+        ...geoInfo,
+      };
+      await StorageService.setItem(LOCATION_CACHE_KEY, JSON.stringify(this.lastKnownLocation));
+      return this.lastKnownLocation;
+    }
+
+    // 3. If GPS was unavailable or timed out, resolve via live IP geolocation
+    const ipLocation = await this.fetchIpLocation();
+    if (ipLocation) {
+      this.lastKnownLocation = ipLocation;
+      await StorageService.setItem(LOCATION_CACHE_KEY, JSON.stringify(this.lastKnownLocation));
+      return this.lastKnownLocation;
+    }
+
+    // 4. Return cached or default coordinates
+    return this.lastKnownLocation;
+  }
+
+  /**
+   * Formats coordinates into standard geographical representation (e.g. "18.5204° N, 73.8567° E")
+   */
+  formatCoordinates(coords: LocationCoords): string {
+    const latDir = coords.latitude >= 0 ? 'N' : 'S';
+    const lonDir = coords.longitude >= 0 ? 'E' : 'W';
+    return `${Math.abs(coords.latitude).toFixed(4)}° ${latDir}, ${Math.abs(coords.longitude).toFixed(4)}° ${lonDir}`;
+  }
+
+  /**
+   * Formats human-friendly location string (e.g. "Shaniwar Peth, Pune" or "Pune, Maharashtra")
+   */
+  formatLocationName(coords: LocationCoords): string {
+    if (coords.address) {
+      return coords.address;
+    }
+    if (coords.city && coords.region) {
+      return `${coords.city}, ${coords.region}`;
+    }
+    if (coords.city) {
+      return coords.city;
+    }
+    return this.formatCoordinates(coords);
   }
 
   /**

@@ -41,41 +41,41 @@ const THEME = {
 const INITIAL_REPORTS: SafetyReport[] = [
   {
     id: 'rep-1',
-    title: 'Street Light Failure & Aggressive Strangers',
+    title: 'Street Light Failure & Low Visibility',
     type: 'danger',
-    description: 'Multiple streetlights out on 5th Ave between Pine and Market. Low visibility area.',
-    latitude: 37.7812,
-    longitude: -122.4111,
+    description: 'Multiple streetlights out along the main avenue. Low visibility area after sunset.',
+    latitude: 18.5282,
+    longitude: 73.8541,
     timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
     isSynced: true,
   },
   {
     id: 'rep-2',
-    title: 'Flooded Underpass / Fallen Tree',
+    title: 'Waterlogged Underpass / Road Diversion',
     type: 'blocked_road',
-    description: 'Underpass on Westbound Highway 101 connector is submerged. Detour via Mission St.',
-    latitude: 37.7725,
-    longitude: -122.4208,
+    description: 'Underpass connector is waterlogged. Traffic redirected via bypass highway.',
+    latitude: 18.5195,
+    longitude: 73.8622,
     timestamp: new Date(Date.now() - 45 * 60000).toISOString(),
     isSynced: true,
   },
   {
     id: 'rep-3',
-    title: 'Slippery Fuel Spill Near Intersection',
+    title: 'Oil Spill Near Major Chowk Intersection',
     type: 'hazard',
-    description: 'Commercial truck spilled diesel near 8th & Harrison. Emergency crews en route.',
-    latitude: 37.7768,
-    longitude: -122.4085,
+    description: 'Commercial vehicle spilled lubricant near junction. Vehicles skidding, caution advised.',
+    latitude: 18.5312,
+    longitude: 73.8475,
     timestamp: new Date(Date.now() - 110 * 60000).toISOString(),
     isSynced: true,
   },
   {
     id: 'rep-4',
-    title: 'Emergency Community Warming & Medical Aid Post',
+    title: 'Disaster Relief & First Aid Assistance Booth',
     type: 'safe_haven',
-    description: 'Volunteer nurses and free water/first-aid supplies available at Community Hall.',
-    latitude: 37.7854,
-    longitude: -122.4172,
+    description: 'Emergency response volunteers, clean drinking water, and basic medical aid available at community hall.',
+    latitude: 18.5248,
+    longitude: 73.8593,
     timestamp: new Date(Date.now() - 180 * 60000).toISOString(),
     isSynced: true,
   },
@@ -123,6 +123,7 @@ export default function ReportsScreen() {
   const fetchCurrentCoords = async () => {
     setFetchingGps(true);
     try {
+      await LocationService.requestPermission();
       const coords = await LocationService.getCurrentLocation();
       setUserLocation(coords);
     } catch {
@@ -138,10 +139,7 @@ export default function ReportsScreen() {
       return;
     }
 
-    const coords = userLocation || {
-      latitude: 37.7749,
-      longitude: -122.4194,
-    };
+    const coords = userLocation || (await LocationService.getCurrentLocation());
 
     const newReport: SafetyReport = {
       id: `rep-${Date.now()}`,
@@ -282,7 +280,7 @@ export default function ReportsScreen() {
 
               <View style={styles.cardFooter}>
                 <Text style={styles.coordsText}>
-                  📍 {report.latitude.toFixed(4)}, {report.longitude.toFixed(4)}
+                  📍 {LocationService.formatCoordinates({ latitude: report.latitude, longitude: report.longitude })}
                 </Text>
                 <TouchableOpacity
                   style={styles.viewMapBtn}

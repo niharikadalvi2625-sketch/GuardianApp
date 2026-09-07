@@ -84,7 +84,8 @@ class SosServiceImpl {
 
     const mapsUrl = `https://maps.google.com/?q=${coords.latitude},${coords.longitude}`;
     const baseTemplate = profile.sosMessageTemplate || 'EMERGENCY SOS: I need urgent help!';
-    const message = `🚨 ${baseTemplate}\nName: ${profile.name} (${profile.bloodType})\nCoordinates: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}\nGPS Location: ${mapsUrl}`;
+    const locationArea = coords.address || (coords.city && coords.region ? `${coords.city}, ${coords.region}` : coords.city || '');
+    const message = `🚨 ${baseTemplate}\nName: ${profile.name} (${profile.bloodType})${locationArea ? `\nLocation: ${locationArea}` : ''}\nCoordinates: ${coords.latitude.toFixed(5)}, ${coords.longitude.toFixed(5)}\nGPS Link: ${mapsUrl}`;
 
     const session: SosAlertSession = {
       id: `sos-${Date.now()}`,
@@ -100,7 +101,7 @@ class SosServiceImpl {
     return { session, message, contacts };
   }
 
-  async dialEmergencyServices(phoneNumber: string = '911'): Promise<void> {
+  async dialEmergencyServices(phoneNumber: string = '112'): Promise<void> {
     const cleanNumber = phoneNumber.replace(/[^0-9+]/g, '');
     const url = `tel:${cleanNumber}`;
     try {
