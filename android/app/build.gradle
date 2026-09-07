@@ -76,6 +76,12 @@ android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
+    externalNativeBuild {
+        cmake {
+            version "3.31.6"
+        }
+    }
+   
 
     namespace "com.guardianapp"
     defaultConfig {
