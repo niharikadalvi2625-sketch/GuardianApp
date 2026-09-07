@@ -25,7 +25,7 @@ const TabIcon = ({ name, focused }: { name: string; focused: boolean }) => {
     Home: '⌂',
     'Safe Zones': '📍',
     Reports: '⚠️',
-    Assistant: '💬',
+    MIA: '💬',
     Profile: '👤',
   };
 
@@ -58,7 +58,7 @@ export default function App() {
               let label = 'Home';
               if (route.name === 'SafeZonesTab') label = 'Safe Zones';
               else if (route.name === 'ReportsTab') label = 'Reports';
-              else if (route.name === 'ChatbotTab') label = 'Assistant';
+              else if (route.name === 'ChatbotTab') label = 'MIA';
               else if (route.name === 'ProfileTab') label = 'Profile';
               return <TabIcon name={label} focused={focused} />;
             },
@@ -82,7 +82,7 @@ export default function App() {
           <Tab.Screen
             name="ChatbotTab"
             component={ChatbotScreen}
-            options={{ tabBarLabel: 'Assistant' }}
+            options={{ tabBarLabel: 'MIA' }}
           />
           <Tab.Screen
             name="ProfileTab"

@@ -117,7 +117,7 @@ export default function ChatbotScreen() {
     {
       id: 'm-1',
       sender: 'assistant',
-      text: 'Hello, I am Guardian AI, your emergency triage & safety companion. I am fully available offline to guide you through first-aid, crisis situations, and disaster preparedness.\n\n⚠️ If you are in immediate life danger, tap Call 911 or activate the SOS alert.',
+      text: 'Hello, I am MIA, your AI emergency triage & safety companion. I am fully available offline to guide you through first-aid, crisis situations, and disaster preparedness.\n\n⚠️ If you are in immediate life danger, tap Call 911 or activate the SOS alert.',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -185,7 +185,7 @@ export default function ChatbotScreen() {
       return '🧘 GROUNDING & PANIC RELIEF:\n\nTake a slow breath: Inhale 4s, hold 4s, exhale 6s.\n\nNow use 5-4-3-2-1 Grounding:\n• 5 things you can SEE\n• 4 things you can TOUCH\n• 3 things you can HEAR\n• 2 things you can SMELL\n• 1 thing you can TASTE\n\nYou are in control and help is accessible.';
     }
 
-    return `🛡️ GUARDIAN AI ASSISTANCE:\n\nI understand your concern about "${query}".\n\n1. Ensure immediate scene safety before taking action.\n2. If someone is injured or in distress, call 911 immediately.\n3. For specific emergency instructions, select one of the Quick First Aid cards above (CPR, Bleeding, Choking, Burns, Grounding).`;
+    return `🛡️ MIA (SAFETY ASSISTANT):\n\nI understand your concern about "${query}".\n\n1. Ensure immediate scene safety before taking action.\n2. If someone is injured or in distress, call 911 immediately.\n3. For specific emergency instructions, select one of the Quick First Aid cards above (CPR, Bleeding, Choking, Burns, Grounding).`;
   };
 
   return (
@@ -201,7 +201,7 @@ export default function ChatbotScreen() {
               <Text style={styles.botEmoji}>🤖</Text>
             </View>
             <View>
-              <Text style={styles.headerTitle}>Guardian AI Assistant</Text>
+              <Text style={styles.headerTitle}>MIA — AI Assistant</Text>
               <View style={styles.statusRow}>
                 <View style={styles.statusDot} />
                 <Text style={styles.statusText}>Offline Medical Triage Engine Active</Text>

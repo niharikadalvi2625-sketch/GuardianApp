@@ -261,8 +261,8 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             <View style={[styles.cardIconBg, { backgroundColor: '#DCFCE7' }]}>
               <Text style={styles.cardIcon}>💬</Text>
             </View>
-            <Text style={styles.cardTitle}>AI Assistant</Text>
-            <Text style={styles.cardDesc}>First Aid & Emergency Triage</Text>
+            <Text style={styles.cardTitle}>MIA Assistant</Text>
+            <Text style={styles.cardDesc}>AI First Aid & Triage</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
