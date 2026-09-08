@@ -35,6 +35,7 @@ local.properties
 !debug.keystore
 .kotlin/
 *.zip
+*.apk
 
 # node.js
 #

@@ -1,7 +1,9 @@
 import { Platform, PermissionsAndroid } from 'react-native';
+import { Platform, PermissionsAndroid, NativeModules, Linking } from 'react-native';
 import { LocationCoords } from '../types';
 import { StorageService } from './storageService';
 
+const { GuardianLocation } = NativeModules;
 const LOCATION_CACHE_KEY = '@guardian_last_known_coords';
 
 // Default initial coordinates centered around the user's region
@@ -70,6 +72,35 @@ class LocationServiceImpl {
     // iOS handles via Info.plist
     this.permissionGranted = true;
     return true;
+  }
+
+  /**
+   * Check if device location services (GPS/Network) are enabled on the phone
+   */
+  async isLocationEnabled(): Promise<boolean> {
+    if (Platform.OS === 'android' && GuardianLocation?.isLocationEnabled) {
+      try {
+        return await GuardianLocation.isLocationEnabled();
+      } catch {
+        return true;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Open Android Device Location Settings
+   */
+  async openLocationSettings(): Promise<void> {
+    if (Platform.OS === 'android') {
+      try {
+        await Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS');
+      } catch {
+        await Linking.openSettings();
+      }
+    } else {
+      await Linking.openSettings();
+    }
   }
 
   /**
@@ -167,6 +198,7 @@ class LocationServiceImpl {
 
   /**
    * Get the current device coordinates using hybrid GPS + IP fallback
+   * Get the current device coordinates using native Android GPS hardware first
    */
   async getCurrentLocation(): Promise<LocationCoords> {
     // 1. Ensure permission is requested
@@ -175,6 +207,41 @@ class LocationServiceImpl {
     }
 
     // 2. Try native GPS via navigator.geolocation if available
+    // 2. Primary: Use Native Android GPS Module directly from hardware sensor
+    if (Platform.OS === 'android' && GuardianLocation?.getCurrentLocation) {
+      try {
+        const nativeLoc = await GuardianLocation.getCurrentLocation();
+        if (nativeLoc && typeof nativeLoc.latitude === 'number' && typeof nativeLoc.longitude === 'number') {
+          const city = nativeLoc.city || nativeLoc.subLocality || '';
+          const address = nativeLoc.address || (nativeLoc.subLocality ? `${nativeLoc.subLocality}, ${nativeLoc.city || ''}` : nativeLoc.city);
+
+          const coords: LocationCoords = {
+            latitude: nativeLoc.latitude,
+            longitude: nativeLoc.longitude,
+            accuracy: nativeLoc.accuracy || 10,
+            timestamp: nativeLoc.timestamp || Date.now(),
+            city: city || undefined,
+            region: nativeLoc.region || undefined,
+            country: nativeLoc.country || undefined,
+            address: address || undefined,
+          };
+
+          // If Android Geocoder didn't return city/address, reverse geocode via Nominatim
+          if (!coords.city && !coords.address) {
+            const geoInfo = await this.reverseGeocode(coords.latitude, coords.longitude);
+            Object.assign(coords, geoInfo);
+          }
+
+          this.lastKnownLocation = coords;
+          await StorageService.setItem(LOCATION_CACHE_KEY, JSON.stringify(coords));
+          return coords;
+        }
+      } catch (nativeErr) {
+        console.warn('Native GPS lookup error, checking fallbacks:', nativeErr);
+      }
+    }
+
+    // 3. Secondary: Try JS geolocation if available
     const gpsLocation = await new Promise<LocationCoords | null>((resolve) => {
       const globalNav = (typeof globalThis !== 'undefined'
         ? (globalThis as unknown as { navigator?: { geolocation?: any } }).navigator
@@ -188,6 +255,7 @@ class LocationServiceImpl {
             resolve(null);
           }
         }, 4000);
+        }, 3000);
 
         globalNav.geolocation.getCurrentPosition(
           (position: any) => {
@@ -210,6 +278,7 @@ class LocationServiceImpl {
             }
           },
           { enableHighAccuracy: true, timeout: 3500, maximumAge: 30000 }
+          { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
         );
       } else {
         resolve(null);
@@ -228,6 +297,7 @@ class LocationServiceImpl {
     }
 
     // 3. If GPS was unavailable or timed out, resolve via live IP geolocation
+    // 4. Tertiary: Resolve via live IP geolocation
     const ipLocation = await this.fetchIpLocation();
     if (ipLocation) {
       this.lastKnownLocation = ipLocation;
@@ -236,7 +306,16 @@ class LocationServiceImpl {
     }
 
     // 4. Return cached or default coordinates
+    // 5. Fallback to cached coordinates
     return this.lastKnownLocation;
+  }
+
+  /**
+   * Manually override location (when user selects or searches a location)
+   */
+  async setManualLocation(coords: LocationCoords): Promise<void> {
+    this.lastKnownLocation = coords;
+    await StorageService.setItem(LOCATION_CACHE_KEY, JSON.stringify(coords));
   }
 
   /**

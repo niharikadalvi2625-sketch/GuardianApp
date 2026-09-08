@@ -42,6 +42,7 @@ const CATEGORIES: { id: SafeZoneCategory | 'all'; label: string; icon: string }[
 export default function SafeZonesScreen() {
   const [loading, setLoading] = useState<boolean>(true);
   const [userCoords, setUserCoords] = useState<LocationCoords | null>(null);
+  const [locationDisabled, setLocationDisabled] = useState<boolean>(false);
   const [safeZones, setSafeZones] = useState<SafeZone[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<SafeZoneCategory | 'all'>('all');
   const [selectedZone, setSelectedZone] = useState<SafeZone | null>(null);
@@ -59,9 +60,13 @@ export default function SafeZonesScreen() {
     setLoading(true);
     try {
       await LocationService.requestPermission();
+      const enabled = await LocationService.isLocationEnabled();
+      setLocationDisabled(!enabled);
+
       const coords = await LocationService.getCurrentLocation();
       setUserCoords(coords);
       const zones = await SafeZoneService.getSafeZones(coords, 'all');
+      const zones = await SafeZoneService.getSafeZones(coords, selectedCategory);
       setSafeZones(zones);
       if (zones.length > 0) {
         setSelectedZone(zones[0]);
@@ -85,12 +90,36 @@ export default function SafeZonesScreen() {
         (z) =>
           z.name.toLowerCase().includes(q) ||
           z.address.toLowerCase().includes(q)
+    if (searchQuery.trim().length >= 2) {
+      const results = await SafeZoneService.searchPlaces(searchQuery.trim(), userCoords || undefined);
+      const filtered = selectedCategory === 'all' ? results : results.filter(r => r.category === selectedCategory);
+      setSafeZones(filtered);
+      if (filtered.length > 0 && (!selectedZone || !filtered.find((z) => z.id === selectedZone.id))) {
+        setSelectedZone(filtered[0]);
+      }
+    } else {
+      let zones = await SafeZoneService.getSafeZones(
+        userCoords || undefined,
+        selectedCategory
       );
     }
 
     setSafeZones(zones);
     if (zones.length > 0 && (!selectedZone || !zones.find((z) => z.id === selectedZone.id))) {
       setSelectedZone(zones[0]);
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        zones = zones.filter(
+          (z) =>
+            z.name.toLowerCase().includes(q) ||
+            z.address.toLowerCase().includes(q)
+        );
+      }
+
+      setSafeZones(zones);
+      if (zones.length > 0 && (!selectedZone || !zones.find((z) => z.id === selectedZone.id))) {
+        setSelectedZone(zones[0]);
+      }
     }
   };
 
@@ -143,6 +172,22 @@ export default function SafeZonesScreen() {
             <Text style={styles.refreshBtnText}>🔄 Refresh</Text>
           </TouchableOpacity>
         </View>
+
+        {/* GPS Warning Banner if disabled */}
+        {locationDisabled && (
+          <TouchableOpacity
+            style={styles.gpsWarningBanner}
+            onPress={() => LocationService.openLocationSettings()}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.gpsWarningIcon}>⚠️</Text>
+            <View style={styles.gpsWarningTextCol}>
+              <Text style={styles.gpsWarningTitle}>Device Location / GPS is OFF</Text>
+              <Text style={styles.gpsWarningSub}>Tap here to turn on Location Services in Settings</Text>
+            </View>
+            <Text style={styles.gpsWarningArrow}>⚙️</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Search Bar */}
         <View style={styles.searchBar}>
@@ -448,4 +493,19 @@ const styles = StyleSheet.create({
   hoursBadgeText: { fontSize: 9, fontWeight: '700', color: THEME.textSecondary },
   zoneQuickNav: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
   quickNavIcon: { fontSize: 14, color: THEME.secondary, fontWeight: '800' },
+  gpsWarningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 12,
+  },
+  gpsWarningIcon: { fontSize: 18, marginRight: 8 },
+  gpsWarningTextCol: { flex: 1 },
+  gpsWarningTitle: { fontSize: 12, fontWeight: '800', color: '#B91C1C' },
+  gpsWarningSub: { fontSize: 10, color: '#7F1D1D', marginTop: 1 },
+  gpsWarningArrow: { fontSize: 16, marginLeft: 6 },
 });
