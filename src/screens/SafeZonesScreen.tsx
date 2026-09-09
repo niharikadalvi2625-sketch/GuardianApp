@@ -65,7 +65,6 @@ export default function SafeZonesScreen() {
 
       const coords = await LocationService.getCurrentLocation();
       setUserCoords(coords);
-      const zones = await SafeZoneService.getSafeZones(coords, 'all');
       const zones = await SafeZoneService.getSafeZones(coords, selectedCategory);
       setSafeZones(zones);
       if (zones.length > 0) {
@@ -79,20 +78,9 @@ export default function SafeZonesScreen() {
   };
 
   const filterZones = async () => {
-    let zones = await SafeZoneService.getSafeZones(
-      userCoords || undefined,
-      selectedCategory
-    );
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      zones = zones.filter(
-        (z) =>
-          z.name.toLowerCase().includes(q) ||
-          z.address.toLowerCase().includes(q)
     if (searchQuery.trim().length >= 2) {
       const results = await SafeZoneService.searchPlaces(searchQuery.trim(), userCoords || undefined);
-      const filtered = selectedCategory === 'all' ? results : results.filter(r => r.category === selectedCategory);
+      const filtered = selectedCategory === 'all' ? results : results.filter((r) => r.category === selectedCategory);
       setSafeZones(filtered);
       if (filtered.length > 0 && (!selectedZone || !filtered.find((z) => z.id === selectedZone.id))) {
         setSelectedZone(filtered[0]);
@@ -102,11 +90,7 @@ export default function SafeZonesScreen() {
         userCoords || undefined,
         selectedCategory
       );
-    }
 
-    setSafeZones(zones);
-    if (zones.length > 0 && (!selectedZone || !zones.find((z) => z.id === selectedZone.id))) {
-      setSelectedZone(zones[0]);
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         zones = zones.filter(
@@ -312,17 +296,19 @@ export default function SafeZonesScreen() {
                   </Text>
                   {selectedZone.verified && (
                     <View style={styles.verifiedBadge}>
-                      <Text style={styles.verifiedBadgeText}>✓ VERIFIED</Text>
+                      <Text style={styles.verifiedBadgeText}>VERIFIED</Text>
                     </View>
                   )}
                 </View>
-                <Text style={styles.selectedZoneAddress} numberOfLines={1}>
+                <Text style={styles.selectedZoneAddress} numberOfLines={2}>
                   {selectedZone.address}
                 </Text>
                 <View style={styles.selectedMetaRow}>
-                  <Text style={styles.selectedDistance}>
-                    📍 {selectedZone.distanceKm !== undefined ? selectedZone.distanceKm : '1.2'} km away
-                  </Text>
+                  {selectedZone.distanceKm !== undefined && (
+                    <Text style={styles.selectedDistance}>
+                      📍 {selectedZone.distanceKm < 1 ? `${Math.round(selectedZone.distanceKm * 1000)} m` : `${selectedZone.distanceKm.toFixed(1)} km`} away
+                    </Text>
+                  )}
                   {selectedZone.isOpen24Hours && (
                     <Text style={styles.open24Badge}>• Open 24/7</Text>
                   )}
@@ -330,21 +316,19 @@ export default function SafeZonesScreen() {
               </View>
             </View>
 
-            {/* Quick Action Navigation & Call Buttons */}
             <View style={styles.actionButtonsRow}>
               <TouchableOpacity
                 style={styles.navButton}
                 onPress={() => handleNavigate(selectedZone)}
-                activeOpacity={0.85}
+                activeOpacity={0.8}
               >
                 <Text style={styles.navButtonIcon}>🧭</Text>
-                <Text style={styles.navButtonText}>Start Navigation</Text>
+                <Text style={styles.navButtonText}>Directions & Navigate</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={styles.callButton}
                 onPress={() => handleCall(selectedZone.phone)}
-                activeOpacity={0.85}
+                activeOpacity={0.8}
               >
                 <Text style={styles.callButtonIcon}>📞</Text>
                 <Text style={styles.callButtonText}>Call</Text>
@@ -356,13 +340,15 @@ export default function SafeZonesScreen() {
         {/* Safe Zones List Section */}
         <View style={styles.listSectionHeader}>
           <Text style={styles.listSectionTitle}>
-            Nearby Verified Facilities ({safeZones.length})
+            Nearby Verified Safe Havens ({safeZones.length})
           </Text>
-          <Text style={styles.listSectionSub}>Sorted by nearest first</Text>
+          <Text style={styles.listSectionSub}>
+            Ranked by immediate proximity to your location
+          </Text>
         </View>
 
         {safeZones.map((zone) => {
-          const cat = getCategoryColor(zone.category);
+          const catColor = getCategoryColor(zone.category);
           const isSelected = selectedZone?.id === zone.id;
 
           return (
@@ -370,10 +356,10 @@ export default function SafeZonesScreen() {
               key={zone.id}
               style={[styles.zoneCard, isSelected && styles.zoneCardSelected]}
               onPress={() => setSelectedZone(zone)}
-              activeOpacity={0.7}
+              activeOpacity={0.85}
             >
-              <View style={[styles.zoneIconContainer, { backgroundColor: cat.bg }]}>
-                <Text style={styles.zoneIcon}>{cat.icon}</Text>
+              <View style={[styles.zoneIconContainer, { backgroundColor: catColor.bg }]}>
+                <Text style={styles.zoneIcon}>{catColor.icon}</Text>
               </View>
 
               <View style={styles.zoneDetails}>
@@ -381,24 +367,24 @@ export default function SafeZonesScreen() {
                   <Text style={styles.zoneName} numberOfLines={1}>
                     {zone.name}
                   </Text>
-                  <Text style={styles.zoneDistance}>
-                    {zone.distanceKm !== undefined ? `${zone.distanceKm} km` : '1.2 km'}
-                  </Text>
+                  {zone.distanceKm !== undefined && (
+                    <Text style={styles.zoneDistance}>
+                      {zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)} m` : `${zone.distanceKm.toFixed(1)} km`}
+                    </Text>
+                  )}
                 </View>
-
                 <Text style={styles.zoneAddress} numberOfLines={1}>
                   {zone.address}
                 </Text>
-
                 <View style={styles.zoneBadgeRow}>
-                  <View style={[styles.catBadge, { backgroundColor: cat.bg }]}>
-                    <Text style={[styles.catBadgeText, { color: cat.text }]}>
-                      {zone.category.replace('_', ' ').toUpperCase()}
+                  <View style={[styles.catBadge, { backgroundColor: catColor.bg }]}>
+                    <Text style={[styles.catBadgeText, { color: catColor.text }]}>
+                      {zone.category.toUpperCase().replace('_', ' ')}
                     </Text>
                   </View>
                   {zone.isOpen24Hours && (
                     <View style={styles.hoursBadge}>
-                      <Text style={styles.hoursBadgeText}>24/7</Text>
+                      <Text style={styles.hoursBadgeText}>24/7 EMERGENCY</Text>
                     </View>
                   )}
                 </View>
@@ -407,6 +393,7 @@ export default function SafeZonesScreen() {
               <TouchableOpacity
                 style={styles.zoneQuickNav}
                 onPress={() => handleNavigate(zone)}
+                activeOpacity={0.7}
               >
                 <Text style={styles.quickNavIcon}>➔</Text>
               </TouchableOpacity>
@@ -428,6 +415,21 @@ const styles = StyleSheet.create({
   headerSubtitle: { fontSize: 12, color: THEME.safeGreen, fontWeight: '700', marginTop: 2 },
   refreshBtn: { backgroundColor: '#F1F5F9', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 },
   refreshBtnText: { fontSize: 12, fontWeight: '700', color: THEME.secondary },
+  gpsWarningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 12,
+  },
+  gpsWarningIcon: { fontSize: 18, marginRight: 8 },
+  gpsWarningTextCol: { flex: 1 },
+  gpsWarningTitle: { fontSize: 12, fontWeight: '800', color: '#B91C1C' },
+  gpsWarningSub: { fontSize: 10, color: '#7F1D1D', marginTop: 1 },
+  gpsWarningArrow: { fontSize: 16, marginLeft: 6 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: THEME.border, borderRadius: 12, paddingHorizontal: 12, height: 42, marginBottom: 12 },
   searchIcon: { fontSize: 15, marginRight: 8 },
   searchInput: { flex: 1, fontSize: 13, color: THEME.textPrimary },
@@ -493,19 +495,4 @@ const styles = StyleSheet.create({
   hoursBadgeText: { fontSize: 9, fontWeight: '700', color: THEME.textSecondary },
   zoneQuickNav: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
   quickNavIcon: { fontSize: 14, color: THEME.secondary, fontWeight: '800' },
-  gpsWarningBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 12,
-  },
-  gpsWarningIcon: { fontSize: 18, marginRight: 8 },
-  gpsWarningTextCol: { flex: 1 },
-  gpsWarningTitle: { fontSize: 12, fontWeight: '800', color: '#B91C1C' },
-  gpsWarningSub: { fontSize: 10, color: '#7F1D1D', marginTop: 1 },
-  gpsWarningArrow: { fontSize: 16, marginLeft: 6 },
 });

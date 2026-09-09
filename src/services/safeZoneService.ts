@@ -39,7 +39,6 @@ function getDefaultPhoneForCategory(category: SafeZoneCategory, country?: string
         return '112';
     }
   }
-  // International / US defaults
   switch (category) {
     case 'hospital':
       return '911';
@@ -156,7 +155,6 @@ export const SafeZoneService = {
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          // Verify cache is reasonably close (< 25km) to user
           const distToFirst = calculateHaversineDistance(
             coords.latitude,
             coords.longitude,
@@ -172,15 +170,9 @@ export const SafeZoneService = {
       // Ignore cache read error
     }
 
-    // 2. If no valid cache for this region, query real-time OpenStreetMap / Nominatim
     // 2. If no valid cache for this region, query real-time OpenStreetMap via Photon API
     if (zones.length === 0) {
       try {
-        const queries: { type: SafeZoneCategory; query: string }[] = [
-          { type: 'hospital', query: `hospital in ${coords.city || 'Pune'}` },
-          { type: 'police', query: `police station in ${coords.city || 'Pune'}` },
-          { type: 'fire_station', query: `fire station in ${coords.city || 'Pune'}` },
-          { type: 'shelter', query: `community center in ${coords.city || 'Pune'}` },
         const categories: { type: SafeZoneCategory; query: string }[] = [
           { type: 'hospital', query: 'hospital' },
           { type: 'police', query: 'police' },
@@ -191,11 +183,9 @@ export const SafeZoneService = {
         const fetchedZones: SafeZone[] = [];
 
         await Promise.all(
-          queries.map(async (qItem) => {
           categories.map(async (cItem) => {
             try {
               const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 4500);
               const timeoutId = setTimeout(() => controller.abort(), 4000);
 
               const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(
@@ -217,7 +207,6 @@ export const SafeZoneService = {
                       const lon = parseFloat(coordinates[0]);
                       const lat = parseFloat(coordinates[1]);
 
-                      // Calculate distance from user
                       const dist = calculateHaversineDistance(
                         coords.latitude,
                         coords.longitude,
@@ -225,7 +214,6 @@ export const SafeZoneService = {
                         lon
                       );
 
-                      // Only include places within 40 km
                       if (dist <= 40) {
                         const name = props.name || props.street || `${cItem.type.replace('_', ' ').toUpperCase()} Service`;
                         const street = props.street || '';
@@ -266,84 +254,12 @@ export const SafeZoneService = {
       }
     }
 
-    // 3. Fallback to Nominatim if Photon didn't return enough records
-    if (zones.length === 0) {
-      try {
-        const nomQueries: { type: SafeZoneCategory; query: string }[] = [
-          { type: 'hospital', query: `hospital in ${coords.city || 'Pune'}` },
-          { type: 'police', query: `police station in ${coords.city || 'Pune'}` },
-        ];
-
-        await Promise.all(
-          nomQueries.map(async (qItem) => {
-            try {
-              const controller = new AbortController();
-              const timeoutId = setTimeout(() => controller.abort(), 4000);
-              const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-                qItem.query
-              )}&limit=3&addressdetails=1`;
-
-              const res = await fetch(url, {
-                headers: { 'User-Agent': 'GuardianSafetyApp/1.0' },
-                headers: { 'User-Agent': 'GuardianApp/2.0' },
-                signal: controller.signal,
-              });
-              clearTimeout(timeoutId);
-
-              if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data)) {
-                  data.forEach((item, index) => {
-                    const rawName = item.name || item.display_name?.split(',')[0] || `${qItem.type} Safe Zone`;
-                    const address = item.display_name?.split(',').slice(0, 3).join(', ') || `${coords.city || 'City'}`;
-                    const lat = parseFloat(item.lat);
-                    const lon = parseFloat(item.lon);
-
-                    if (!isNaN(lat) && !isNaN(lon)) {
-                      fetchedZones.push({
-                        id: `osm-${qItem.type}-${item.osm_id || index}-${Date.now()}`,
-                        name: rawName.trim(),
-                      zones.push({
-                        id: `nom-${qItem.type}-${item.osm_id || index}-${Date.now()}`,
-                        name: item.name || item.display_name?.split(',')[0] || `${qItem.type} Safe Zone`,
-                        category: qItem.type,
-                        address: address.trim(),
-                        address: item.display_name?.split(',').slice(0, 3).join(', ') || `${coords.city || 'City'}`,
-                        phone: getDefaultPhoneForCategory(qItem.type, coords.country),
-                        latitude: lat,
-                        longitude: lon,
-                        isOpen24Hours: true,
-                        verified: true,
-                      });
-                    }
-                  });
-                }
-              }
-            } catch {
-              // Individual category query failure tolerated
-            }
-            } catch {}
-          })
-        );
-
-        if (fetchedZones.length >= 3) {
-          zones = fetchedZones;
-          await StorageService.setItem(SAFE_ZONES_CACHE_KEY, JSON.stringify(zones));
-        }
-      } catch (err) {
-        console.warn('Live safe zone query failed:', err);
-      }
-      } catch {}
-    }
-
-    // 3. If live query was unavailable or returned insufficient records, fallback to localized coordinate generator
-    // 4. Fallback to localized coordinate generator
+    // 3. Fallback to localized coordinate generator
     if (zones.length === 0) {
       zones = generateLocalizedFallbackZones(coords);
     }
 
     // 4. Filter by category if requested
-    // 5. Filter by category if requested
     if (category && category !== 'all') {
       zones = zones.filter((z) => z.category === category);
     }
@@ -404,7 +320,6 @@ export const SafeZoneService = {
               const state = props.state || '';
               const address = [street, city, state].filter(Boolean).join(', ') || name;
 
-              // Auto detect category
               const lowerName = (name + ' ' + (props.osm_value || '')).toLowerCase();
               let category: SafeZoneCategory = 'hospital';
               if (lowerName.includes('police') || lowerName.includes('chowki') || lowerName.includes('thana')) {
@@ -440,7 +355,6 @@ export const SafeZoneService = {
       console.warn('Search places failed:', e);
     }
 
-    // Fallback: filter existing zones by query
     const baseZones = await this.getSafeZones(userLocation, 'all');
     const q = query.toLowerCase();
     return baseZones.filter(
@@ -454,7 +368,6 @@ export const SafeZoneService = {
 
     let url: string;
     if (Platform.OS === 'android') {
-      // Android Intent: open Google Maps Navigation with origin & destination if available
       if (userLocation) {
         url = `https://www.google.com/maps/dir/?api=1&origin=${userLocation.latitude},${userLocation.longitude}&destination=${latLng}&travelmode=driving`;
       } else {

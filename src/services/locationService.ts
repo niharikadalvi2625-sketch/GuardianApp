@@ -1,4 +1,3 @@
-import { Platform, PermissionsAndroid } from 'react-native';
 import { Platform, PermissionsAndroid, NativeModules, Linking } from 'react-native';
 import { LocationCoords } from '../types';
 import { StorageService } from './storageService';
@@ -69,7 +68,6 @@ class LocationServiceImpl {
         return false;
       }
     }
-    // iOS handles via Info.plist
     this.permissionGranted = true;
     return true;
   }
@@ -197,7 +195,6 @@ class LocationServiceImpl {
   }
 
   /**
-   * Get the current device coordinates using hybrid GPS + IP fallback
    * Get the current device coordinates using native Android GPS hardware first
    */
   async getCurrentLocation(): Promise<LocationCoords> {
@@ -206,7 +203,6 @@ class LocationServiceImpl {
       await this.requestPermission();
     }
 
-    // 2. Try native GPS via navigator.geolocation if available
     // 2. Primary: Use Native Android GPS Module directly from hardware sensor
     if (Platform.OS === 'android' && GuardianLocation?.getCurrentLocation) {
       try {
@@ -254,7 +250,6 @@ class LocationServiceImpl {
             resolved = true;
             resolve(null);
           }
-        }, 4000);
         }, 3000);
 
         globalNav.geolocation.getCurrentPosition(
@@ -277,7 +272,6 @@ class LocationServiceImpl {
               resolve(null);
             }
           },
-          { enableHighAccuracy: true, timeout: 3500, maximumAge: 30000 }
           { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
         );
       } else {
@@ -286,7 +280,6 @@ class LocationServiceImpl {
     });
 
     if (gpsLocation) {
-      // Reverse geocode GPS coordinates to get human-readable city & area
       const geoInfo = await this.reverseGeocode(gpsLocation.latitude, gpsLocation.longitude);
       this.lastKnownLocation = {
         ...gpsLocation,
@@ -296,7 +289,6 @@ class LocationServiceImpl {
       return this.lastKnownLocation;
     }
 
-    // 3. If GPS was unavailable or timed out, resolve via live IP geolocation
     // 4. Tertiary: Resolve via live IP geolocation
     const ipLocation = await this.fetchIpLocation();
     if (ipLocation) {
@@ -305,7 +297,6 @@ class LocationServiceImpl {
       return this.lastKnownLocation;
     }
 
-    // 4. Return cached or default coordinates
     // 5. Fallback to cached coordinates
     return this.lastKnownLocation;
   }
