@@ -16,6 +16,7 @@ interface SosModalProps {
   visible: boolean;
   onClose: () => void;
   userCoords: LocationCoords | null;
+  immediateTrigger?: boolean;
 }
 
 const { width } = Dimensions.get('window');
@@ -24,9 +25,10 @@ export default function SosModal({
   visible,
   onClose,
   userCoords,
+  immediateTrigger = true,
 }: SosModalProps) {
-  const [countdown, setCountdown] = useState<number>(5);
-  const [isTriggered, setIsTriggered] = useState<boolean>(false);
+  const [countdown, setCountdown] = useState<number>(immediateTrigger ? 0 : 5);
+  const [isTriggered, setIsTriggered] = useState<boolean>(immediateTrigger);
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [sosMessage, setSosMessage] = useState<string>('');
@@ -36,10 +38,17 @@ export default function SosModal({
 
   useEffect(() => {
     if (visible) {
-      setCountdown(5);
-      setIsTriggered(false);
       loadContactsAndProfile();
-      startCountdown();
+
+      if (immediateTrigger) {
+        setIsTriggered(true);
+        setCountdown(0);
+        executeSosTrigger();
+      } else {
+        setCountdown(5);
+        setIsTriggered(false);
+        startCountdown();
+      }
 
       // Beacon pulsing animation
       const loop = Animated.loop(
@@ -63,7 +72,7 @@ export default function SosModal({
         if (timerRef.current) clearInterval(timerRef.current);
       };
     }
-  }, [visible]);
+  }, [visible, immediateTrigger]);
 
   const loadContactsAndProfile = async () => {
     const c = await SosService.getContacts();
@@ -88,17 +97,18 @@ export default function SosModal({
 
   const executeSosTrigger = async () => {
     setIsTriggered(true);
-    const coords = userCoords || (await LocationService.getCurrentLocation());
+    const coords = userCoords || LocationService.getLastKnownLocation();
 
-    const { message } = await SosService.triggerSosAlert(coords);
+    const { message, contacts: alertContacts } = await SosService.triggerSosAlert(coords);
     setSosMessage(message);
 
-    // Auto dispatch SMS to primary contacts
-    const primaryPhones = contacts
+    // Auto dispatch SMS to parents / primary guardians immediately
+    const primaryPhones = alertContacts
       .filter((c) => c.isPrimary)
       .map((c) => c.phone);
-    if (primaryPhones.length > 0) {
-      SosService.sendSosSms(primaryPhones, message);
+    const phonesToUse = primaryPhones.length > 0 ? primaryPhones : (alertContacts[0] ? [alertContacts[0].phone] : []);
+    if (phonesToUse.length > 0) {
+      await SosService.sendSosSms(phonesToUse, message);
     }
   };
 
@@ -123,9 +133,17 @@ export default function SosModal({
     }
   };
 
+  const handleWhatsAppPrimary = () => {
+    const primary = contacts.find((c) => c.isPrimary) || contacts[0];
+    if (primary) {
+      SosService.shareViaWhatsApp(sosMessage, primary.phone);
+    }
+  };
+
   const handleResendSms = () => {
-    const allPhones = contacts.map((c) => c.phone);
-    SosService.sendSosSms(allPhones, sosMessage);
+    const primary = contacts.find((c) => c.isPrimary) || contacts[0];
+    const phones = primary ? [primary.phone] : contacts.map((c) => c.phone);
+    SosService.sendSosSms(phones, sosMessage);
   };
 
   return (
@@ -193,6 +211,19 @@ export default function SosModal({
                 Your trusted guardians have been pinged with your exact location and Medical ID.
               </Text>
 
+              {/* Primary Guardian Target Confirmation */}
+              {contacts.length > 0 && (
+                <View style={styles.guardianNotifiedBox}>
+                  <Text style={styles.guardianNotifiedLabel}>ALERT SENT DIRECTLY TO PARENTS / GUARDIAN</Text>
+                  <Text style={styles.guardianNotifiedName}>
+                    {contacts.find((c) => c.isPrimary)?.name || contacts[0]?.name || 'Primary Guardian'}
+                  </Text>
+                  <Text style={styles.guardianNotifiedPhone}>
+                    {contacts.find((c) => c.isPrimary)?.phone || contacts[0]?.phone}
+                  </Text>
+                </View>
+              )}
+
               {/* Coordinates summary */}
               <View style={styles.coordsBox}>
                 <Text style={styles.coordsLabel}>BROADCAST LOCATION</Text>
@@ -211,26 +242,22 @@ export default function SosModal({
               {/* Quick Action Buttons */}
               <View style={styles.actionsColumn}>
                 <TouchableOpacity
-                  style={styles.callPoliceBtn}
-                  onPress={handleCall911}
-                  activeOpacity={0.85}
+                  style={styles.resendSmsBtn}
+                  onPress={handleResendSms}
+                  activeOpacity={0.8}
                 >
-                  <Text style={styles.callIcon}>🚨</Text>
-                  <View>
-                    <Text style={styles.callTitle}>Call 112 (Emergency Dispatch)</Text>
-                    <Text style={styles.callSub}>Police • Fire • Medical</Text>
-                  </View>
+                  <Text style={styles.resendSmsText}>💬 Open / Send Live GPS via SMS</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.callPoliceBtn, { backgroundColor: '#C2410C' }]}
-                  onPress={() => SosService.dialEmergencyServices('1091')}
+                  style={styles.whatsappBtn}
+                  onPress={handleWhatsAppPrimary}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.callIcon}>👮‍♀️</Text>
+                  <Text style={styles.whatsappIcon}>📱</Text>
                   <View>
-                    <Text style={styles.callTitle}>Call 1091 (Women Safety Helpline)</Text>
-                    <Text style={styles.callSub}>24x7 Police Rescue for Women</Text>
+                    <Text style={styles.whatsappTitle}>Send Live GPS on WhatsApp</Text>
+                    <Text style={styles.whatsappSub}>Instant map link to parents</Text>
                   </View>
                 </TouchableOpacity>
 
@@ -245,17 +272,33 @@ export default function SosModal({
                       <Text style={styles.callGuardianTitle}>
                         Call {contacts.find((c) => c.isPrimary)?.name || contacts[0]?.name}
                       </Text>
-                      <Text style={styles.callGuardianSub}>Primary Emergency Contact</Text>
+                      <Text style={styles.callGuardianSub}>Parents / Primary Contact</Text>
                     </View>
                   </TouchableOpacity>
                 )}
 
                 <TouchableOpacity
-                  style={styles.resendSmsBtn}
-                  onPress={handleResendSms}
-                  activeOpacity={0.8}
+                  style={styles.callPoliceBtn}
+                  onPress={handleCall911}
+                  activeOpacity={0.85}
                 >
-                  <Text style={styles.resendSmsText}>💬 Open Emergency SMS Thread</Text>
+                  <Text style={styles.callIcon}>🚨</Text>
+                  <View>
+                    <Text style={styles.callTitle}>Call 112 (Emergency Police Dispatch)</Text>
+                    <Text style={styles.callSub}>Police • Fire • Medical</Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.callPoliceBtn, { backgroundColor: '#C2410C' }]}
+                  onPress={() => SosService.dialEmergencyServices('1091')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.callIcon}>👮‍♀️</Text>
+                  <View>
+                    <Text style={styles.callTitle}>Call 1091 (Women Safety Helpline)</Text>
+                    <Text style={styles.callSub}>24x7 Police Rescue for Women</Text>
+                  </View>
                 </TouchableOpacity>
               </View>
 
@@ -521,5 +564,52 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 13,
     fontWeight: '700',
+  },
+  guardianNotifiedBox: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  guardianNotifiedLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#1D4ED8',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  guardianNotifiedName: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  guardianNotifiedPhone: {
+    fontSize: 13,
+    color: '#2563EB',
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  whatsappBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16A34A',
+    padding: 14,
+    borderRadius: 14,
+    gap: 12,
+  },
+  whatsappIcon: {
+    fontSize: 22,
+  },
+  whatsappTitle: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  whatsappSub: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 11,
+    fontWeight: '600',
   },
 });

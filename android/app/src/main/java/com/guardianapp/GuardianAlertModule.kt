@@ -80,5 +80,28 @@ class GuardianAlertModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(false)
         }
     }
+
+    @ReactMethod
+    fun openSmsComposer(phone: String, message: String, promise: Promise) {
+        try {
+            val cleanPhone = phone.replace(Regex("[^0-9+]"), "")
+            val uri = if (cleanPhone.isNotEmpty()) {
+                android.net.Uri.parse("smsto:$cleanPhone")
+            } else {
+                android.net.Uri.parse("smsto:")
+            }
+            val intent = android.content.Intent(android.content.Intent.ACTION_SENDTO, uri).apply {
+                putExtra("sms_body", message)
+                putExtra(android.content.Intent.EXTRA_TEXT, message)
+                putExtra("android.intent.extra.TEXT", message)
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            val target = reactContext.currentActivity ?: reactContext
+            target.startActivity(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
 }
 

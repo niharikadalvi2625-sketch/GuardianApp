@@ -1,6 +1,7 @@
 import { Linking, Platform } from 'react-native';
 import { EmergencyContact, UserProfile, LocationCoords, SosAlertSession } from '../types';
 import { StorageService } from './storageService';
+import { AlertService } from './alertService';
 
 const CONTACTS_STORAGE_KEY = '@guardian_contacts';
 const PROFILE_STORAGE_KEY = '@guardian_user_profile';
@@ -67,6 +68,51 @@ class SosServiceImpl {
   async getPrimaryGuardian(): Promise<EmergencyContact | null> {
     const contacts = await this.getContacts();
     return contacts.find((c) => c.isPrimary) || contacts[0] || null;
+  }
+
+  async updatePrimaryGuardian(name: string, phone: string): Promise<EmergencyContact[]> {
+    const contacts = await this.getContacts();
+    const cleanPhone = phone.trim();
+    const cleanName = name.trim() || 'Primary Guardian (Parents / Spouse)';
+
+    let found = false;
+    const updated = contacts.map((c) => {
+      if (c.isPrimary || (!found && (c.relationship.toLowerCase().includes('family') || c.relationship.toLowerCase().includes('parent')))) {
+        found = true;
+        return {
+          ...c,
+          name: cleanName,
+          phone: cleanPhone,
+          isPrimary: true,
+        };
+      }
+      return {
+        ...c,
+        isPrimary: false,
+      };
+    });
+
+    if (!found) {
+      if (updated.length > 0) {
+        updated[0] = {
+          ...updated[0],
+          name: cleanName,
+          phone: cleanPhone,
+          isPrimary: true,
+        };
+      } else {
+        updated.unshift({
+          id: `c-${Date.now()}`,
+          name: cleanName,
+          phone: cleanPhone,
+          relationship: 'Family',
+          isPrimary: true,
+        });
+      }
+    }
+
+    await this.saveContacts(updated);
+    return updated;
   }
 
   async getProfile(): Promise<UserProfile> {
@@ -202,19 +248,31 @@ class SosServiceImpl {
   /**
    * Open SMS composer addressed to phone numbers
    */
-  async sendSosSms(phoneNumbers: string[], message: string): Promise<void> {
-    if (phoneNumbers.length === 0) return;
+  async sendSosSms(phoneNumbers: string[], message: string): Promise<boolean> {
+    if (phoneNumbers.length === 0) return false;
+    const primaryPhone = phoneNumbers[0];
+
+    // Priority 1: Native Android Direct SMS Composer (Never fails, opens messaging app directly)
+    if (Platform.OS === 'android') {
+      try {
+        const handled = await AlertService.openSmsComposer(primaryPhone, message);
+        if (handled) return true;
+      } catch (e) {
+        console.warn('Native SMS composer failed, using URL fallback:', e);
+      }
+    }
+
+    // Priority 2: Standard URL scheme fallback
     const separator = Platform.OS === 'ios' ? '&' : '?';
-    const phones = phoneNumbers.map((p) => p.replace(/[^0-9+]/g, '')).join(',');
-    const url = `sms:${phones}${separator}body=${encodeURIComponent(message)}`;
+    const cleanPhone = primaryPhone.replace(/[^0-9+]/g, '');
+    const url = `sms:${cleanPhone}${separator}body=${encodeURIComponent(message)}`;
 
     try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-      }
+      await Linking.openURL(url);
+      return true;
     } catch (e) {
       console.warn('Error sending SMS:', e);
+      return false;
     }
   }
 

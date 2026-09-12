@@ -35,6 +35,22 @@ class AlertServiceImpl {
       Vibration.vibrate(50);
     }
   }
+
+  /**
+   * Directly open SMS composer targeted at phone number with pre-filled distress message
+   */
+  async openSmsComposer(phone: string, message: string): Promise<boolean> {
+    if (Platform.OS === 'android' && GuardianAlert?.openSmsComposer) {
+      try {
+        const result = await GuardianAlert.openSmsComposer(phone, message);
+        return result !== false;
+      } catch (e) {
+        console.warn('Native openSmsComposer error:', e);
+        return false;
+      }
+    }
+    return false;
+  }
 }
 
 export const AlertService = new AlertServiceImpl();

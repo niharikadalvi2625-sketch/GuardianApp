@@ -37,6 +37,13 @@ class LocationServiceImpl {
   }
 
   /**
+   * Return synchronous last known cached location
+   */
+  getLastKnownLocation(): LocationCoords {
+    return this.lastKnownLocation;
+  }
+
+  /**
    * Request location permissions for Android / iOS
    */
   async requestPermission(): Promise<boolean> {
@@ -222,10 +229,16 @@ class LocationServiceImpl {
             address: address || undefined,
           };
 
-          // If Android Geocoder didn't return city/address, reverse geocode via Nominatim
+          // If Android Geocoder didn't return city/address, reverse geocode via Nominatim in background
           if (!coords.city && !coords.address) {
-            const geoInfo = await this.reverseGeocode(coords.latitude, coords.longitude);
-            Object.assign(coords, geoInfo);
+            this.reverseGeocode(coords.latitude, coords.longitude)
+              .then((geoInfo) => {
+                if (geoInfo) {
+                  Object.assign(this.lastKnownLocation, geoInfo);
+                  StorageService.setItem(LOCATION_CACHE_KEY, JSON.stringify(this.lastKnownLocation)).catch(() => {});
+                }
+              })
+              .catch(() => {});
           }
 
           this.lastKnownLocation = coords;

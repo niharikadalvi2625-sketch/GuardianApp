@@ -10,11 +10,14 @@ import {
   Dimensions,
   ActivityIndicator,
   Alert,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { HomeScreenNavigationProp } from '../types/navigation';
 import { LocationService } from '../services/locationService';
 import { SosService } from '../services/sosService';
+import { AlertService } from '../services/alertService';
 import { LocationCoords, UserProfile, EmergencyContact } from '../types';
 import SosModal from '../components/SosModal';
 import BeingFollowedModal from '../components/BeingFollowedModal';
@@ -58,6 +61,9 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [beingFollowedVisible, setBeingFollowedVisible] = useState<boolean>(false);
   const [fakeCallVisible, setFakeCallVisible] = useState<boolean>(false);
   const [journeySentinelVisible, setJourneySentinelVisible] = useState<boolean>(false);
+  const [parentModalVisible, setParentModalVisible] = useState<boolean>(false);
+  const [parentName, setParentName] = useState<string>('');
+  const [parentPhone, setParentPhone] = useState<string>('');
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -120,6 +126,63 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   };
 
   const primaryContact = contacts.find((c) => c.isPrimary) || contacts[0];
+  const isDefaultPhone =
+    !primaryContact ||
+    primaryContact.phone.includes('98765 43210') ||
+    primaryContact.phone.includes('9876543210');
+
+  const handleOpenParentModal = () => {
+    setParentName(
+      primaryContact
+        ? primaryContact.name.includes('Primary Guardian')
+          ? 'Parents'
+          : primaryContact.name
+        : 'Parents'
+    );
+    setParentPhone(isDefaultPhone ? '' : primaryContact?.phone || '');
+    setParentModalVisible(true);
+  };
+
+  const handleSaveParentContact = async () => {
+    const trimmedPhone = parentPhone.trim();
+    if (!trimmedPhone) {
+      Alert.alert('Phone Number Required', 'Please enter your parents or spouse mobile number.');
+      return;
+    }
+    const trimmedName = parentName.trim() || 'Parents';
+    const updated = await SosService.updatePrimaryGuardian(trimmedName, trimmedPhone);
+    setContacts(updated);
+    setParentModalVisible(false);
+    Alert.alert(
+      'Parents Number Saved! 🛡️',
+      `The SOS button is now directly linked to dispatch your live GPS location to ${trimmedName} (${trimmedPhone}).`
+    );
+  };
+
+  const handleDirectSosPress = () => {
+    AlertService.triggerHaptic();
+
+    if (isDefaultPhone) {
+      Alert.alert(
+        'Set Parents Mobile Number',
+        'Please enter your parents or spouse mobile number so the emergency SOS with live GPS reaches them directly.',
+        [
+          {
+            text: '✏️ Enter Number Now',
+            onPress: handleOpenParentModal,
+          },
+          {
+            text: 'Send via SMS Anyway',
+            onPress: () => setSosModalVisible(true),
+          },
+          { text: 'Cancel', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+
+    setSosModalVisible(true);
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -171,26 +234,65 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
         {/* Primary Guardian Contact Card */}
         {primaryContact && (
-          <View style={styles.guardianBar}>
-            <View style={styles.guardianAvatar}>
-              <Text style={styles.guardianAvatarIcon}>🛡️</Text>
+          <TouchableOpacity
+            style={[
+              styles.guardianBar,
+              isDefaultPhone && { borderColor: '#F59E0B', backgroundColor: '#FFFBEB' },
+            ]}
+            onPress={handleOpenParentModal}
+            activeOpacity={0.85}
+          >
+            <View
+              style={[
+                styles.guardianAvatar,
+                isDefaultPhone && { backgroundColor: '#FEF3C7' },
+              ]}
+            >
+              <Text style={styles.guardianAvatarIcon}>{isDefaultPhone ? '⚠️' : '🛡️'}</Text>
             </View>
             <View style={styles.guardianInfo}>
-              <Text style={styles.guardianBadge}>PRIMARY GUARDIAN</Text>
+              <View style={styles.guardianHeaderRow}>
+                <Text
+                  style={[
+                    styles.guardianBadge,
+                    isDefaultPhone && { color: '#D97706' },
+                  ]}
+                >
+                  {isDefaultPhone ? 'SET PARENTS NUMBER' : 'PRIMARY GUARDIAN'}
+                </Text>
+                {isDefaultPhone && (
+                  <View style={styles.setupPill}>
+                    <Text style={styles.setupPillText}>TAP TO CONFIGURE</Text>
+                  </View>
+                )}
+              </View>
               <Text style={styles.guardianName} numberOfLines={1}>
                 {primaryContact.name}
               </Text>
-              <Text style={styles.guardianPhone}>{primaryContact.phone}</Text>
+              <Text style={styles.guardianPhone}>
+                {isDefaultPhone ? 'Tap to enter your parents / spouse mobile number' : primaryContact.phone}
+              </Text>
             </View>
-            <TouchableOpacity
-              style={styles.guardianCallBtn}
-              onPress={() => handleCall(primaryContact.phone)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.guardianCallIcon}>📞</Text>
-              <Text style={styles.guardianCallText}>Call</Text>
-            </TouchableOpacity>
-          </View>
+            <View style={styles.guardianActionsRow}>
+              <TouchableOpacity
+                style={styles.guardianEditBtn}
+                onPress={handleOpenParentModal}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.guardianEditIcon}>✏️</Text>
+              </TouchableOpacity>
+              {!isDefaultPhone && (
+                <TouchableOpacity
+                  style={styles.guardianCallBtn}
+                  onPress={() => handleCall(primaryContact.phone)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.guardianCallIcon}>📞</Text>
+                  <Text style={styles.guardianCallText}>Call</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </TouchableOpacity>
         )}
 
         {/* --- WOMEN'S SAFETY SHIELD SECTION --- */}
@@ -266,7 +368,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             <TouchableOpacity
               activeOpacity={0.85}
               style={styles.sosButton}
-              onPress={() => setSosModalVisible(true)}
+              onPress={handleDirectSosPress}
               accessibilityLabel="Emergency SOS Button"
               accessibilityHint="Tap to initiate emergency distress broadcast"
               accessibilityRole="button"
@@ -278,8 +380,9 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         </View>
 
         <Text style={styles.sosHelperText}>
-          Instant dispatch: sends real-time GPS link & Medical ID to{' '}
-          {contacts.length} emergency contacts
+          {isDefaultPhone
+            ? '⚠️ Tap the Primary Guardian card above to set your parents phone number'
+            : `1-Tap Live SOS: sends real-time GPS pin to ${primaryContact.name} (${primaryContact.phone})`}
         </Text>
 
         {/* Emergency Quick Hotlines Row */}
@@ -408,6 +511,59 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         onClose={() => setJourneySentinelVisible(false)}
         userCoords={coords}
       />
+
+      {/* Quick Setup Modal for Parents / Spouse Emergency Number */}
+      <Modal
+        visible={parentModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setParentModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.parentModalCard}>
+            <View style={styles.parentModalHeader}>
+              <Text style={styles.parentModalTitle}>🛡️ Parents / Guardian Contact</Text>
+              <TouchableOpacity
+                onPress={() => setParentModalVisible(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={styles.parentModalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.parentModalDesc}>
+              When you tap the big red SOS button, your live GPS coordinates, Google Maps route link, and emergency distress alert will be sent immediately to this phone number.
+            </Text>
+
+            <Text style={styles.inputLabel}>Guardian Relation / Name</Text>
+            <TextInput
+              style={styles.textInput}
+              value={parentName}
+              onChangeText={setParentName}
+              placeholder="e.g. Mom / Dad / Parents / Spouse"
+              placeholderTextColor="#94A3B8"
+            />
+
+            <Text style={styles.inputLabel}>Mobile Phone Number</Text>
+            <TextInput
+              style={styles.textInput}
+              value={parentPhone}
+              onChangeText={setParentPhone}
+              placeholder="e.g. +91 98230 12345"
+              placeholderTextColor="#94A3B8"
+              keyboardType="phone-pad"
+            />
+
+            <TouchableOpacity
+              style={styles.saveParentBtn}
+              onPress={handleSaveParentContact}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.saveParentBtnText}>🛡️ Save & Link to SOS Button</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -785,5 +941,107 @@ const styles = StyleSheet.create({
     color: THEME.textSecondary,
     marginTop: 2,
     fontWeight: '500',
+  },
+  guardianHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  setupPill: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  setupPillText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#D97706',
+  },
+  guardianActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  guardianEditBtn: {
+    backgroundColor: '#F1F5F9',
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  guardianEditIcon: {
+    fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  parentModalCard: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  parentModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  parentModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  parentModalClose: {
+    fontSize: 18,
+    color: '#94A3B8',
+    fontWeight: '700',
+    padding: 4,
+  },
+  parentModalDesc: {
+    fontSize: 13,
+    color: '#64748B',
+    lineHeight: 18,
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#334155',
+    marginBottom: 6,
+    marginTop: 6,
+  },
+  textInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#0F172A',
+    marginBottom: 10,
+  },
+  saveParentBtn: {
+    backgroundColor: '#16A34A',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  saveParentBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
   },
 });
