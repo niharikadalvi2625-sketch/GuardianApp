@@ -3,6 +3,7 @@ import { SafeZone, SafeZoneCategory, LocationCoords } from '../types';
 import { StorageService } from './storageService';
 
 const SAFE_ZONES_CACHE_KEY = '@guardian_safe_zones_cache';
+const CUSTOM_SHELTERS_KEY = '@guardian_custom_safe_shelters';
 
 function calculateHaversineDistance(
   lat1: number,
@@ -259,13 +260,17 @@ export const SafeZoneService = {
       zones = generateLocalizedFallbackZones(coords);
     }
 
-    // 4. Filter by category if requested
+    // 4. Merge custom user-added safe shelters
+    const customShelters = await this.getCustomShelters();
+    let allZones = [...customShelters, ...zones];
+
+    // 5. Filter by category if requested
     if (category && category !== 'all') {
-      zones = zones.filter((z) => z.category === category);
+      allZones = allZones.filter((z) => z.category === category);
     }
 
-    // 5. Compute live distance relative to user coordinates and sort nearest first
-    zones = zones.map((zone) => ({
+    // 6. Compute live distance relative to user coordinates and sort nearest first
+    allZones = allZones.map((zone) => ({
       ...zone,
       distanceKm: calculateHaversineDistance(
         coords.latitude,
@@ -275,9 +280,50 @@ export const SafeZoneService = {
       ),
     }));
 
-    zones.sort((a, b) => (a.distanceKm || 0) - (b.distanceKm || 0));
+    allZones.sort((a, b) => (a.distanceKm || 0) - (b.distanceKm || 0));
 
-    return zones;
+    return allZones;
+  },
+
+  async getCustomShelters(): Promise<SafeZone[]> {
+    try {
+      const stored = await StorageService.getItem(CUSTOM_SHELTERS_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  async addCustomShelter(shelterData: {
+    name: string;
+    address: string;
+    phone?: string;
+    latitude: number;
+    longitude: number;
+    isOpen24Hours?: boolean;
+  }): Promise<SafeZone> {
+    const shelters = await this.getCustomShelters();
+    const newShelter: SafeZone = {
+      id: `custom-shelter-${Date.now()}`,
+      name: shelterData.name.trim(),
+      category: 'shelter',
+      address: shelterData.address.trim(),
+      phone: shelterData.phone?.trim() || '112',
+      latitude: shelterData.latitude,
+      longitude: shelterData.longitude,
+      isOpen24Hours: shelterData.isOpen24Hours ?? true,
+      verified: true,
+      isUserAdded: true,
+    };
+    shelters.unshift(newShelter);
+    await StorageService.setItem(CUSTOM_SHELTERS_KEY, JSON.stringify(shelters));
+    return newShelter;
+  },
+
+  async deleteCustomShelter(id: string): Promise<void> {
+    const shelters = await this.getCustomShelters();
+    const filtered = shelters.filter((s) => s.id !== id);
+    await StorageService.setItem(CUSTOM_SHELTERS_KEY, JSON.stringify(filtered));
   },
 
   async searchPlaces(query: string, userLocation?: LocationCoords): Promise<SafeZone[]> {

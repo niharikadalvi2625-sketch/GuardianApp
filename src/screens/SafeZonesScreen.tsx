@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
+  Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SafeZoneService } from '../services/safeZoneService';
@@ -29,13 +31,15 @@ const THEME = {
   amber: '#F59E0B',
   amberBg: '#FEF3C7',
   border: '#E2E8F0',
+  shelterPurple: '#8B5CF6',
+  shelterPurpleBg: '#F3E8FF',
 };
 
 const CATEGORIES: { id: SafeZoneCategory | 'all'; label: string; icon: string }[] = [
   { id: 'all', label: 'All', icon: '🌐' },
+  { id: 'shelter', label: 'Shelters', icon: '🏠' },
   { id: 'hospital', label: 'Hospitals', icon: '🏥' },
   { id: 'police', label: 'Police', icon: '👮' },
-  { id: 'shelter', label: 'Shelters', icon: '🏠' },
   { id: 'fire_station', label: 'Fire Dept', icon: '🚒' },
 ];
 
@@ -47,6 +51,15 @@ export default function SafeZonesScreen() {
   const [selectedCategory, setSelectedCategory] = useState<SafeZoneCategory | 'all'>('all');
   const [selectedZone, setSelectedZone] = useState<SafeZone | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Add Safe Shelter Modal State
+  const [addModalVisible, setAddModalVisible] = useState<boolean>(false);
+  const [newShelterName, setNewShelterName] = useState<string>('');
+  const [newShelterAddress, setNewShelterAddress] = useState<string>('');
+  const [newShelterPhone, setNewShelterPhone] = useState<string>('');
+  const [newShelterLat, setNewShelterLat] = useState<number | null>(null);
+  const [newShelterLng, setNewShelterLng] = useState<number | null>(null);
+  const [isUsingLiveGps, setIsUsingLiveGps] = useState<boolean>(false);
 
   useEffect(() => {
     loadLocationAndZones();
@@ -115,7 +128,87 @@ export default function SafeZonesScreen() {
     SafeZoneService.callSafeZone(phone);
   };
 
-  const getCategoryColor = (category: SafeZoneCategory) => {
+  const handleUseCurrentLocationForShelter = async () => {
+    try {
+      const loc = userCoords || (await LocationService.getCurrentLocation());
+      setNewShelterLat(loc.latitude);
+      setNewShelterLng(loc.longitude);
+      setIsUsingLiveGps(true);
+      if (loc.address) {
+        setNewShelterAddress(loc.address);
+      } else {
+        const city = loc.city || 'Local Area';
+        setNewShelterAddress(`Near ${city} (${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)})`);
+      }
+    } catch (e) {
+      Alert.alert('GPS Notice', 'Could not fetch current GPS coordinates.');
+    }
+  };
+
+  const handleSaveCustomShelter = async () => {
+    if (!newShelterName.trim()) {
+      Alert.alert('Missing Name', 'Please enter a name for this Safe Shelter (e.g. "My Home", "Aunt Priya\'s House").');
+      return;
+    }
+
+    const lat = newShelterLat ?? userCoords?.latitude ?? 18.5204;
+    const lng = newShelterLng ?? userCoords?.longitude ?? 73.8567;
+    const addr = newShelterAddress.trim() || `Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+    const created = await SafeZoneService.addCustomShelter({
+      name: newShelterName.trim(),
+      address: addr,
+      phone: newShelterPhone.trim() || '112',
+      latitude: lat,
+      longitude: lng,
+      isOpen24Hours: true,
+    });
+
+    setAddModalVisible(false);
+    setNewShelterName('');
+    setNewShelterAddress('');
+    setNewShelterPhone('');
+    setNewShelterLat(null);
+    setNewShelterLng(null);
+    setIsUsingLiveGps(false);
+
+    Alert.alert(
+      'Safe Shelter Added!',
+      `"${created.name}" is now saved as your trusted sanctuary. You can navigate directly to it with 1 tap anytime.`
+    );
+
+    // Reload safe zones list
+    const updated = await SafeZoneService.getSafeZones(userCoords || undefined, selectedCategory);
+    setSafeZones(updated);
+    setSelectedZone(created);
+  };
+
+  const handleDeleteShelter = (id: string, name: string) => {
+    Alert.alert(
+      'Remove Safe Shelter',
+      `Are you sure you want to remove "${name}" from your safe shelters list?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await SafeZoneService.deleteCustomShelter(id);
+            const updated = await SafeZoneService.getSafeZones(userCoords || undefined, selectedCategory);
+            setSafeZones(updated);
+            if (selectedZone?.id === id) {
+              setSelectedZone(updated[0] || null);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const getCategoryColor = (category: SafeZoneCategory, isUserAdded?: boolean) => {
+    if (isUserAdded) {
+      return { bg: THEME.shelterPurpleBg, text: THEME.shelterPurple, icon: '⭐' };
+    }
     switch (category) {
       case 'hospital':
         return { bg: THEME.blueBg, text: THEME.blue, icon: '🏥' };
@@ -152,9 +245,22 @@ export default function SafeZonesScreen() {
                 : 'GPS Standby'}
             </Text>
           </View>
-          <TouchableOpacity style={styles.refreshBtn} onPress={loadLocationAndZones}>
-            <Text style={styles.refreshBtnText}>🔄 Refresh</Text>
-          </TouchableOpacity>
+          <View style={styles.headerButtonsRow}>
+            <TouchableOpacity
+              style={styles.addShelterHeaderBtn}
+              onPress={() => {
+                setAddModalVisible(true);
+                handleUseCurrentLocationForShelter();
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.addShelterHeaderBtnText}>➕ Add Shelter</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.refreshBtn} onPress={loadLocationAndZones}>
+              <Text style={styles.refreshBtnText}>🔄</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* GPS Warning Banner if disabled */}
@@ -250,7 +356,7 @@ export default function SafeZonesScreen() {
 
             {/* Interactive Markers for safe zones */}
             {safeZones.slice(0, 6).map((zone, idx) => {
-              const catColor = getCategoryColor(zone.category);
+              const catColor = getCategoryColor(zone.category, zone.isUserAdded);
               const isSelected = selectedZone?.id === zone.id;
               const angles = [45, 130, 210, 300, 85, 260];
               const distances = [75, 90, 65, 80, 45, 100];
@@ -276,17 +382,17 @@ export default function SafeZonesScreen() {
             })}
           </View>
           <Text style={styles.mapHintText}>
-            Tap any marker on the radar or choose from the verified list below
+            Tap any marker on the radar or choose from the list below
           </Text>
         </View>
 
         {/* Selected Zone Quick Action Card */}
         {selectedZone && (
-          <View style={styles.selectedZoneCard}>
+          <View style={[styles.selectedZoneCard, selectedZone.isUserAdded && styles.userShelterSelectedCard]}>
             <View style={styles.selectedZoneHeader}>
-              <View style={styles.selectedIconBg}>
+              <View style={[styles.selectedIconBg, selectedZone.isUserAdded && { backgroundColor: THEME.shelterPurpleBg }]}>
                 <Text style={styles.selectedZoneIcon}>
-                  {getCategoryColor(selectedZone.category).icon}
+                  {getCategoryColor(selectedZone.category, selectedZone.isUserAdded).icon}
                 </Text>
               </View>
               <View style={styles.selectedZoneInfo}>
@@ -294,11 +400,15 @@ export default function SafeZonesScreen() {
                   <Text style={styles.selectedZoneName} numberOfLines={1}>
                     {selectedZone.name}
                   </Text>
-                  {selectedZone.verified && (
+                  {selectedZone.isUserAdded ? (
+                    <View style={styles.userShelterBadge}>
+                      <Text style={styles.userShelterBadgeText}>YOUR SAFE HAVEN</Text>
+                    </View>
+                  ) : selectedZone.verified ? (
                     <View style={styles.verifiedBadge}>
                       <Text style={styles.verifiedBadgeText}>VERIFIED</Text>
                     </View>
-                  )}
+                  ) : null}
                 </View>
                 <Text style={styles.selectedZoneAddress} numberOfLines={2}>
                   {selectedZone.address}
@@ -318,12 +428,12 @@ export default function SafeZonesScreen() {
 
             <View style={styles.actionButtonsRow}>
               <TouchableOpacity
-                style={styles.navButton}
+                style={[styles.navButton, selectedZone.isUserAdded && { backgroundColor: THEME.shelterPurple }]}
                 onPress={() => handleNavigate(selectedZone)}
                 activeOpacity={0.8}
               >
                 <Text style={styles.navButtonIcon}>🧭</Text>
-                <Text style={styles.navButtonText}>Directions & Navigate</Text>
+                <Text style={styles.navButtonText}>Directions & Live Navigation</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.callButton}
@@ -348,13 +458,17 @@ export default function SafeZonesScreen() {
         </View>
 
         {safeZones.map((zone) => {
-          const catColor = getCategoryColor(zone.category);
+          const catColor = getCategoryColor(zone.category, zone.isUserAdded);
           const isSelected = selectedZone?.id === zone.id;
 
           return (
             <TouchableOpacity
               key={zone.id}
-              style={[styles.zoneCard, isSelected && styles.zoneCardSelected]}
+              style={[
+                styles.zoneCard,
+                isSelected && styles.zoneCardSelected,
+                zone.isUserAdded && styles.userZoneCard,
+              ]}
               onPress={() => setSelectedZone(zone)}
               activeOpacity={0.85}
             >
@@ -368,7 +482,7 @@ export default function SafeZonesScreen() {
                     {zone.name}
                   </Text>
                   {zone.distanceKm !== undefined && (
-                    <Text style={styles.zoneDistance}>
+                    <Text style={[styles.zoneDistance, zone.isUserAdded && { color: THEME.shelterPurple }]}>
                       {zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)} m` : `${zone.distanceKm.toFixed(1)} km`}
                     </Text>
                   )}
@@ -377,18 +491,37 @@ export default function SafeZonesScreen() {
                   {zone.address}
                 </Text>
                 <View style={styles.zoneBadgeRow}>
-                  <View style={[styles.catBadge, { backgroundColor: catColor.bg }]}>
-                    <Text style={[styles.catBadgeText, { color: catColor.text }]}>
-                      {zone.category.toUpperCase().replace('_', ' ')}
-                    </Text>
-                  </View>
+                  {zone.isUserAdded ? (
+                    <View style={[styles.catBadge, { backgroundColor: THEME.shelterPurpleBg }]}>
+                      <Text style={[styles.catBadgeText, { color: THEME.shelterPurple }]}>
+                        ⭐ TRUSTED SHELTER
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={[styles.catBadge, { backgroundColor: catColor.bg }]}>
+                      <Text style={[styles.catBadgeText, { color: catColor.text }]}>
+                        {zone.category.toUpperCase().replace('_', ' ')}
+                      </Text>
+                    </View>
+                  )}
+
                   {zone.isOpen24Hours && (
                     <View style={styles.hoursBadge}>
-                      <Text style={styles.hoursBadgeText}>24/7 EMERGENCY</Text>
+                      <Text style={styles.hoursBadgeText}>24/7 ACCESSIBLE</Text>
                     </View>
                   )}
                 </View>
               </View>
+
+              {zone.isUserAdded && (
+                <TouchableOpacity
+                  style={styles.deleteShelterBtn}
+                  onPress={() => handleDeleteShelter(zone.id, zone.name)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={styles.deleteShelterIcon}>🗑️</Text>
+                </TouchableOpacity>
+              )}
 
               <TouchableOpacity
                 style={styles.zoneQuickNav}
@@ -401,6 +534,96 @@ export default function SafeZonesScreen() {
           );
         })}
       </ScrollView>
+
+      {/* --- ADD SAFE SHELTER MODAL --- */}
+      <Modal
+        visible={addModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setAddModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalBadge}>SAFE HAVEN DIRECTORY</Text>
+                <Text style={styles.modalTitle}>Add Safe Shelter</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.modalCloseBtn}
+                onPress={() => setAddModalVisible(false)}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalDesc}>
+                Save your home, a relative's house, a gated society, or trusted sanctuary so you can direct yourself or others there instantly via live GPS navigation.
+              </Text>
+
+              {/* 1-Tap Use Current Location Button */}
+              <TouchableOpacity
+                style={[
+                  styles.useGpsBtn,
+                  isUsingLiveGps && styles.useGpsBtnActive,
+                ]}
+                onPress={handleUseCurrentLocationForShelter}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.useGpsIcon}>📍</Text>
+                <Text style={styles.useGpsText}>
+                  {isUsingLiveGps
+                    ? '✓ Using Your Live GPS Coordinates'
+                    : 'Use My Current Live Location'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* Shelter Name Input */}
+              <Text style={styles.inputLabel}>SHELTER / SANCTUARY NAME *</Text>
+              <TextInput
+                style={styles.textInput}
+                placeholder="e.g. My Home, Aunt Priya's Flat, Sakhi Hostel"
+                placeholderTextColor={THEME.textLight}
+                value={newShelterName}
+                onChangeText={setNewShelterName}
+              />
+
+              {/* Address / Landmark Input */}
+              <Text style={styles.inputLabel}>ADDRESS / LANDMARK *</Text>
+              <TextInput
+                style={[styles.textInput, { height: 60 }]}
+                multiline
+                placeholder="e.g. Building 4, Green Glen Layout, Main Road"
+                placeholderTextColor={THEME.textLight}
+                value={newShelterAddress}
+                onChangeText={setNewShelterAddress}
+              />
+
+              {/* Contact Phone Input */}
+              <Text style={styles.inputLabel}>CONTACT NUMBER (OPTIONAL)</Text>
+              <TextInput
+                style={styles.textInput}
+                keyboardType="phone-pad"
+                placeholder="e.g. +91 98765 43210"
+                placeholderTextColor={THEME.textLight}
+                value={newShelterPhone}
+                onChangeText={setNewShelterPhone}
+              />
+
+              {/* Save Button */}
+              <TouchableOpacity
+                style={styles.saveShelterBtn}
+                onPress={handleSaveCustomShelter}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.saveShelterBtnIcon}>💾</Text>
+                <Text style={styles.saveShelterBtnText}>SAVE SAFE SHELTER</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -413,8 +636,20 @@ const styles = StyleSheet.create({
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   headerTitle: { fontSize: 22, fontWeight: '800', color: THEME.textPrimary },
   headerSubtitle: { fontSize: 12, color: THEME.safeGreen, fontWeight: '700', marginTop: 2 },
-  refreshBtn: { backgroundColor: '#F1F5F9', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 },
-  refreshBtnText: { fontSize: 12, fontWeight: '700', color: THEME.secondary },
+  headerButtonsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  addShelterHeaderBtn: {
+    backgroundColor: '#8B5CF6',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  addShelterHeaderBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  refreshBtn: { backgroundColor: '#F1F5F9', paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8 },
+  refreshBtnText: { fontSize: 13, fontWeight: '700', color: THEME.secondary },
   gpsWarningBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -457,6 +692,7 @@ const styles = StyleSheet.create({
   markerEmoji: { fontSize: 16 },
   mapHintText: { fontSize: 11, color: '#94A3B8', textAlign: 'center', marginTop: 4 },
   selectedZoneCard: { backgroundColor: THEME.cardBg, borderRadius: 18, padding: 16, borderWidth: 2, borderColor: THEME.primary, marginBottom: 20 },
+  userShelterSelectedCard: { borderColor: '#8B5CF6' },
   selectedZoneHeader: { flexDirection: 'row', marginBottom: 14 },
   selectedIconBg: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   selectedZoneIcon: { fontSize: 22 },
@@ -465,6 +701,8 @@ const styles = StyleSheet.create({
   selectedZoneName: { fontSize: 16, fontWeight: '800', color: THEME.textPrimary, flex: 1 },
   verifiedBadge: { backgroundColor: THEME.safeGreenBg, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
   verifiedBadgeText: { fontSize: 8, fontWeight: '800', color: THEME.safeGreen },
+  userShelterBadge: { backgroundColor: '#F3E8FF', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
+  userShelterBadgeText: { fontSize: 8, fontWeight: '800', color: '#7C3AED' },
   selectedZoneAddress: { fontSize: 12, color: THEME.textSecondary, marginTop: 2 },
   selectedMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
   selectedDistance: { fontSize: 12, fontWeight: '700', color: THEME.primary },
@@ -480,6 +718,7 @@ const styles = StyleSheet.create({
   listSectionTitle: { fontSize: 17, fontWeight: '800', color: THEME.textPrimary },
   listSectionSub: { fontSize: 12, color: THEME.textSecondary, marginTop: 2 },
   zoneCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: THEME.cardBg, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: THEME.border, marginBottom: 10 },
+  userZoneCard: { borderColor: '#DDD6FE', backgroundColor: '#FAF5FF' },
   zoneCardSelected: { borderColor: THEME.primary, backgroundColor: '#FFF5F5' },
   zoneIconContainer: { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   zoneIcon: { fontSize: 20 },
@@ -493,6 +732,58 @@ const styles = StyleSheet.create({
   catBadgeText: { fontSize: 9, fontWeight: '800' },
   hoursBadge: { backgroundColor: '#F1F5F9', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
   hoursBadgeText: { fontSize: 9, fontWeight: '700', color: THEME.textSecondary },
-  zoneQuickNav: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
+  deleteShelterBtn: { padding: 6, marginRight: 4 },
+  deleteShelterIcon: { fontSize: 14 },
+  zoneQuickNav: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginLeft: 4 },
   quickNavIcon: { fontSize: 14, color: THEME.secondary, fontWeight: '800' },
+
+  // Modal Styles
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0, 0, 0, 0.65)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 22, maxHeight: '85%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  modalBadge: { fontSize: 10, fontWeight: '800', color: '#8B5CF6', letterSpacing: 0.8 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: THEME.textPrimary, marginTop: 2 },
+  modalCloseBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' },
+  modalCloseText: { fontSize: 14, fontWeight: '700', color: THEME.textSecondary },
+  modalDesc: { fontSize: 13, color: THEME.textSecondary, lineHeight: 18, marginBottom: 14 },
+  useGpsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EDE9FE',
+    borderWidth: 1.5,
+    borderColor: '#8B5CF6',
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginBottom: 16,
+    gap: 8,
+  },
+  useGpsBtnActive: { backgroundColor: '#8B5CF6' },
+  useGpsIcon: { fontSize: 16 },
+  useGpsText: { fontSize: 13, fontWeight: '700', color: '#6D28D9' },
+  inputLabel: { fontSize: 11, fontWeight: '800', color: THEME.textSecondary, letterSpacing: 0.8, marginBottom: 6 },
+  textInput: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: THEME.border,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: THEME.textPrimary,
+    marginBottom: 14,
+  },
+  saveShelterBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8B5CF6',
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 8,
+    marginBottom: 20,
+    gap: 8,
+  },
+  saveShelterBtnIcon: { fontSize: 16 },
+  saveShelterBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800', letterSpacing: 0.5 },
 });

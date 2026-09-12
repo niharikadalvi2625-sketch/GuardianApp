@@ -39,6 +39,7 @@ export interface SafeZone {
   isOpen24Hours: boolean;
   distanceKm?: number;
   verified: boolean;
+  isUserAdded?: boolean;
 }
 
 export type HazardReportType = 'danger' | 'hazard' | 'blocked_road' | 'safe_haven';
