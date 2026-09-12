@@ -21,6 +21,7 @@ export interface LocationCoords {
   accuracy?: number;
   timestamp?: number;
   city?: string;
+  subLocality?: string;
   region?: string;
   country?: string;
   address?: string;
