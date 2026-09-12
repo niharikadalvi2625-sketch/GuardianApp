@@ -221,24 +221,28 @@ export default function SafeZonesScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Top Header */}
-      <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <View>
-            <Text style={styles.headerTitle}>Safe Zone Finder</Text>
-            <Text style={styles.headerSubtitle} numberOfLines={1}>
-              {userCoords
-                ? `📍 ${LocationService.formatLocationName(userCoords)}`
-                : 'GPS Standby'}
-            </Text>
-          </View>
-          <View style={styles.headerButtonsRow}>
-            <TouchableOpacity style={styles.refreshBtn} onPress={loadLocationAndZones}>
-              <Text style={styles.refreshBtnText}>🔄 Refresh</Text>
-            </TouchableOpacity>
-          </View>
+      {/* Compact Sticky Top Bar */}
+      <View style={styles.topBar}>
+        <View style={styles.topBarTextCol}>
+          <Text style={styles.topBarTitle}>Safe Zone Finder</Text>
+          <Text style={styles.topBarSubtitle} numberOfLines={1}>
+            {userCoords
+              ? `📍 ${LocationService.formatLocationName(userCoords)}`
+              : 'GPS Standby'}
+          </Text>
         </View>
+        <TouchableOpacity style={styles.refreshBtn} onPress={loadLocationAndZones} activeOpacity={0.8}>
+          <Text style={styles.refreshBtnText}>🔄 Refresh</Text>
+        </TouchableOpacity>
+      </View>
 
+      {/* Main Smooth Scrollable Body */}
+      <ScrollView
+        style={styles.mainScrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* GPS Warning Banner if disabled */}
         {locationDisabled && (
           <TouchableOpacity
@@ -267,7 +271,7 @@ export default function SafeZonesScreen() {
             </View>
             <View style={styles.instantMarkTextCol}>
               <Text style={styles.instantMarkTitle}>
-                {markingSpot ? 'Acquiring GPS...' : '1-TAP: MARK HERE AS SAFE SHELTER'}
+                {markingSpot ? 'Acquiring GPS Fix...' : '1-TAP: MARK HERE AS SAFE SHELTER'}
               </Text>
               <Text style={styles.instantMarkSub}>
                 Zero typing • Instant live GPS anchor • Direct turn-by-turn navigation
@@ -310,7 +314,7 @@ export default function SafeZonesScreen() {
             onChangeText={setSearchQuery}
           />
           {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
+            <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={styles.clearIcon}>✕</Text>
             </TouchableOpacity>
           )}
@@ -321,6 +325,7 @@ export default function SafeZonesScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.categoriesScroll}
+          nestedScrollEnabled={true}
         >
           {CATEGORIES.map((cat) => {
             const isSelected = selectedCategory === cat.id;
@@ -347,12 +352,7 @@ export default function SafeZonesScreen() {
             );
           })}
         </ScrollView>
-      </View>
 
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
         {/* Visual Map / Radar View */}
         <View style={styles.mapCard}>
           <View style={styles.mapHeader}>
@@ -553,26 +553,79 @@ export default function SafeZonesScreen() {
             </TouchableOpacity>
           );
         })}
+
+        {/* Extra Bottom Cushion */}
+        <View style={styles.bottomSpacer} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: THEME.background },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: THEME.background },
-  loadingText: { marginTop: 12, fontSize: 14, color: THEME.textSecondary, fontWeight: '600' },
-  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 8, backgroundColor: THEME.cardBg, borderBottomWidth: 1, borderBottomColor: THEME.border },
-  titleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: THEME.textPrimary },
-  headerSubtitle: { fontSize: 12, color: THEME.safeGreen, fontWeight: '700', marginTop: 2 },
-  headerButtonsRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  refreshBtn: { backgroundColor: '#F1F5F9', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8 },
-  refreshBtnText: { fontSize: 12, fontWeight: '700', color: THEME.secondary },
+  container: {
+    flex: 1,
+    backgroundColor: THEME.background,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: THEME.background,
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: THEME.textSecondary,
+    fontWeight: '600',
+  },
+  topBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 10,
+    backgroundColor: THEME.cardBg,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.border,
+  },
+  topBarTextCol: {
+    flex: 1,
+  },
+  topBarTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  topBarSubtitle: {
+    fontSize: 12,
+    color: THEME.safeGreen,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  refreshBtn: {
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  refreshBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.secondary,
+  },
+  mainScrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 40,
+  },
 
   // Instant 1-Tap Disaster Safe Spot Marker Styles
   instantMarkContainer: {
-    marginBottom: 12,
+    marginBottom: 14,
   },
   instantMarkBanner: {
     flexDirection: 'row',
@@ -674,62 +727,260 @@ const styles = StyleSheet.create({
   gpsWarningTitle: { fontSize: 12, fontWeight: '800', color: '#B91C1C' },
   gpsWarningSub: { fontSize: 10, color: '#7F1D1D', marginTop: 1 },
   gpsWarningArrow: { fontSize: 16, marginLeft: 6 },
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: THEME.border, borderRadius: 12, paddingHorizontal: 12, height: 42, marginBottom: 10 },
+
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: THEME.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    height: 42,
+    marginBottom: 12,
+  },
   searchIcon: { fontSize: 15, marginRight: 8 },
   searchInput: { flex: 1, fontSize: 13, color: THEME.textPrimary },
   clearIcon: { fontSize: 14, color: THEME.textLight, padding: 4 },
-  categoriesScroll: { paddingBottom: 6, gap: 8 },
-  categoryChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F1F5F9', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 20 },
-  categoryChipActive: { backgroundColor: THEME.secondary },
+
+  categoriesScroll: {
+    paddingBottom: 12,
+    gap: 8,
+  },
+  categoryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: THEME.border,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  categoryChipActive: {
+    backgroundColor: THEME.secondary,
+    borderColor: THEME.secondary,
+  },
   categoryIcon: { fontSize: 14, marginRight: 6 },
   categoryLabel: { fontSize: 12, fontWeight: '700', color: THEME.textSecondary },
   categoryLabelActive: { color: '#FFFFFF' },
-  scrollContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 36 },
-  mapCard: { backgroundColor: '#0F172A', borderRadius: 20, padding: 16, marginBottom: 16, alignItems: 'center' },
-  mapHeader: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  mapLiveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(42, 157, 143, 0.2)', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6 },
-  mapLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#2A9D8F', marginRight: 6 },
-  mapLiveText: { fontSize: 10, fontWeight: '800', color: '#2A9D8F', textTransform: 'uppercase' },
+
+  mapCard: {
+    backgroundColor: '#0F172A',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  mapHeader: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  mapLiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(42, 157, 143, 0.2)',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  mapLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#2A9D8F',
+    marginRight: 6,
+  },
+  mapLiveText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2A9D8F',
+    textTransform: 'uppercase',
+  },
   mapRadiusText: { fontSize: 11, color: '#94A3B8', fontWeight: '600' },
-  radarVisual: { width: 220, height: 220, justifyContent: 'center', alignItems: 'center', marginVertical: 10 },
-  radarRing: { position: 'absolute', borderWidth: 1, borderColor: 'rgba(148, 163, 184, 0.25)' },
-  userPinContainer: { width: 24, height: 24, justifyContent: 'center', alignItems: 'center' },
-  userPinGlow: { position: 'absolute', width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(59, 130, 246, 0.35)' },
-  userPinDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#3B82F6', borderWidth: 2, borderColor: '#FFFFFF' },
-  mapMarker: { position: 'absolute', width: 36, height: 36, borderRadius: 18, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFFFFF' },
-  mapMarkerSelected: { borderColor: THEME.primary, borderWidth: 3, transform: [{ scale: 1.2 }] },
+  radarVisual: {
+    width: 220,
+    height: 220,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 10,
+  },
+  radarRing: {
+    position: 'absolute',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.25)',
+  },
+  userPinContainer: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userPinGlow: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(59, 130, 246, 0.35)',
+  },
+  userPinDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#3B82F6',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  mapMarker: {
+    position: 'absolute',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  mapMarkerSelected: {
+    borderColor: THEME.primary,
+    borderWidth: 3,
+    transform: [{ scale: 1.2 }],
+  },
   markerEmoji: { fontSize: 16 },
-  mapHintText: { fontSize: 11, color: '#94A3B8', textAlign: 'center', marginTop: 4 },
-  selectedZoneCard: { backgroundColor: THEME.cardBg, borderRadius: 18, padding: 16, borderWidth: 2, borderColor: THEME.primary, marginBottom: 20 },
-  userShelterSelectedCard: { borderColor: '#7C3AED' },
-  selectedZoneHeader: { flexDirection: 'row', marginBottom: 14 },
-  selectedIconBg: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#FEE2E2', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  mapHintText: {
+    fontSize: 11,
+    color: '#94A3B8',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+
+  selectedZoneCard: {
+    backgroundColor: THEME.cardBg,
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 2,
+    borderColor: THEME.primary,
+    marginBottom: 16,
+  },
+  userShelterSelectedCard: {
+    borderColor: '#7C3AED',
+  },
+  selectedZoneHeader: {
+    flexDirection: 'row',
+    marginBottom: 14,
+  },
+  selectedIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
   selectedZoneIcon: { fontSize: 22 },
   selectedZoneInfo: { flex: 1 },
   selectedTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  selectedZoneName: { fontSize: 16, fontWeight: '800', color: THEME.textPrimary, flex: 1 },
-  verifiedBadge: { backgroundColor: THEME.safeGreenBg, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
-  verifiedBadgeText: { fontSize: 8, fontWeight: '800', color: THEME.safeGreen },
-  userShelterBadge: { backgroundColor: '#F3E8FF', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
-  userShelterBadgeText: { fontSize: 8, fontWeight: '800', color: '#7C3AED' },
-  selectedZoneAddress: { fontSize: 12, color: THEME.textSecondary, marginTop: 2 },
-  selectedMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  selectedZoneName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+    flex: 1,
+  },
+  verifiedBadge: {
+    backgroundColor: THEME.safeGreenBg,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  verifiedBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: THEME.safeGreen,
+  },
+  userShelterBadge: {
+    backgroundColor: '#F3E8FF',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  userShelterBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#7C3AED',
+  },
+  selectedZoneAddress: {
+    fontSize: 12,
+    color: THEME.textSecondary,
+    marginTop: 2,
+  },
+  selectedMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
   selectedDistance: { fontSize: 12, fontWeight: '700', color: THEME.primary },
   open24Badge: { fontSize: 11, fontWeight: '700', color: THEME.safeGreen },
   actionButtonsRow: { flexDirection: 'row', gap: 10 },
-  navButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: THEME.primary, paddingVertical: 12, borderRadius: 12, gap: 6 },
+  navButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: THEME.primary,
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 6,
+  },
   navButtonIcon: { fontSize: 16 },
   navButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
-  callButton: { width: 80, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEF2F6', paddingVertical: 12, borderRadius: 12, gap: 4 },
+  callButton: {
+    width: 80,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2F6',
+    paddingVertical: 12,
+    borderRadius: 12,
+    gap: 4,
+  },
   callButtonIcon: { fontSize: 14 },
   callButtonText: { color: THEME.secondary, fontSize: 13, fontWeight: '700' },
+
   listSectionHeader: { marginBottom: 12 },
   listSectionTitle: { fontSize: 17, fontWeight: '800', color: THEME.textPrimary },
   listSectionSub: { fontSize: 12, color: THEME.textSecondary, marginTop: 2 },
-  zoneCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: THEME.cardBg, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: THEME.border, marginBottom: 10 },
-  userZoneCard: { borderColor: '#DDD6FE', backgroundColor: '#FAF5FF' },
-  zoneCardSelected: { borderColor: THEME.primary, backgroundColor: '#FFF5F5' },
-  zoneIconContainer: { width: 44, height: 44, borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+
+  zoneCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.cardBg,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    marginBottom: 10,
+  },
+  userZoneCard: {
+    borderColor: '#DDD6FE',
+    backgroundColor: '#FAF5FF',
+  },
+  zoneCardSelected: {
+    borderColor: THEME.primary,
+    backgroundColor: '#FFF5F5',
+  },
+  zoneIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
   zoneIcon: { fontSize: 20 },
   zoneDetails: { flex: 1 },
   zoneTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
@@ -743,6 +994,15 @@ const styles = StyleSheet.create({
   hoursBadgeText: { fontSize: 9, fontWeight: '700', color: THEME.textSecondary },
   deleteShelterBtn: { padding: 6, marginRight: 4 },
   deleteShelterIcon: { fontSize: 14 },
-  zoneQuickNav: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginLeft: 4 },
+  zoneQuickNav: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
+  },
   quickNavIcon: { fontSize: 14, color: THEME.secondary, fontWeight: '800' },
+  bottomSpacer: { height: 60 },
 });
