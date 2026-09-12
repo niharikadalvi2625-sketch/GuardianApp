@@ -222,6 +222,18 @@ export default function SosModal({
                   </View>
                 </TouchableOpacity>
 
+                <TouchableOpacity
+                  style={[styles.callPoliceBtn, { backgroundColor: '#C2410C' }]}
+                  onPress={() => SosService.dialEmergencyServices('1091')}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.callIcon}>👮‍♀️</Text>
+                  <View>
+                    <Text style={styles.callTitle}>Call 1091 (Women Safety Helpline)</Text>
+                    <Text style={styles.callSub}>24x7 Police Rescue for Women</Text>
+                  </View>
+                </TouchableOpacity>
+
                 {contacts.length > 0 && (
                   <TouchableOpacity
                     style={styles.callGuardianBtn}

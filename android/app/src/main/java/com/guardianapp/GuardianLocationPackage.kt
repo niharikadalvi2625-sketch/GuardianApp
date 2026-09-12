@@ -7,7 +7,10 @@ import com.facebook.react.uimanager.ViewManager
 
 class GuardianLocationPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
-        return listOf(GuardianLocationModule(reactContext))
+        return listOf(
+            GuardianLocationModule(reactContext),
+            GuardianAlertModule(reactContext)
+        )
     }
 
     override fun createViewManagers(reactContext: ReactApplicationContext): List<ViewManager<*, *>> {

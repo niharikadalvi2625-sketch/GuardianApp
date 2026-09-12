@@ -17,9 +17,12 @@ import { LocationService } from '../services/locationService';
 import { SosService } from '../services/sosService';
 import { LocationCoords, UserProfile, EmergencyContact } from '../types';
 import SosModal from '../components/SosModal';
+import BeingFollowedModal from '../components/BeingFollowedModal';
+import FakeCallModal from '../components/FakeCallModal';
+import JourneySentinelModal from '../components/JourneySentinelModal';
 
 const { width } = Dimensions.get('window');
-const SOS_BUTTON_SIZE = width * 0.44;
+const SOS_BUTTON_SIZE = width * 0.42;
 
 const THEME = {
   primary: '#E63946',
@@ -36,6 +39,8 @@ const THEME = {
   blue: '#3B82F6',
   amber: '#F59E0B',
   border: '#E2E8F0',
+  indigo: '#4F46E5',
+  indigoBg: '#EEF2FF',
 };
 
 interface HomeScreenProps {
@@ -47,7 +52,12 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [loadingLocation, setLoadingLocation] = useState<boolean>(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [contacts, setContacts] = useState<EmergencyContact[]>([]);
+
+  // Modals
   const [sosModalVisible, setSosModalVisible] = useState<boolean>(false);
+  const [beingFollowedVisible, setBeingFollowedVisible] = useState<boolean>(false);
+  const [fakeCallVisible, setFakeCallVisible] = useState<boolean>(false);
+  const [journeySentinelVisible, setJourneySentinelVisible] = useState<boolean>(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -159,6 +169,89 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           </TouchableOpacity>
         </View>
 
+        {/* Primary Guardian Contact Card */}
+        {primaryContact && (
+          <View style={styles.guardianBar}>
+            <View style={styles.guardianAvatar}>
+              <Text style={styles.guardianAvatarIcon}>🛡️</Text>
+            </View>
+            <View style={styles.guardianInfo}>
+              <Text style={styles.guardianBadge}>PRIMARY GUARDIAN</Text>
+              <Text style={styles.guardianName} numberOfLines={1}>
+                {primaryContact.name}
+              </Text>
+              <Text style={styles.guardianPhone}>{primaryContact.phone}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.guardianCallBtn}
+              onPress={() => handleCall(primaryContact.phone)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.guardianCallIcon}>📞</Text>
+              <Text style={styles.guardianCallText}>Call</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* --- WOMEN'S SAFETY SHIELD SECTION --- */}
+        <View style={styles.womenSafetySection}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Women's Safety Shield</Text>
+            <Text style={styles.shieldBadge}>NIGHT TRAVEL & DEFENSE</Text>
+          </View>
+
+          {/* Large High-Priority "Being Followed / Unsafe" Trigger */}
+          <TouchableOpacity
+            style={styles.beingFollowedBanner}
+            onPress={() => setBeingFollowedVisible(true)}
+            activeOpacity={0.88}
+          >
+            <View style={styles.bannerIconContainer}>
+              <Text style={styles.bannerIcon}>🚨</Text>
+            </View>
+            <View style={styles.bannerTextCol}>
+              <Text style={styles.bannerTitle}>I Feel Unsafe / Being Followed</Text>
+              <Text style={styles.bannerDesc}>
+                1-tap stealth GPS alert to parents/spouse, silent SOS, or speed-dial
+              </Text>
+            </View>
+            <Text style={styles.bannerArrow}>➔</Text>
+          </TouchableOpacity>
+
+          {/* Quick Protective Actions Grid */}
+          <View style={styles.protectiveGrid}>
+            <TouchableOpacity
+              style={[styles.protectiveCard, { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' }]}
+              onPress={() => setBeingFollowedVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.protectiveIcon}>🤫</Text>
+              <Text style={[styles.protectiveTitle, { color: '#4338CA' }]}>Silent SOS</Text>
+              <Text style={styles.protectiveSub}>For hiding / danger</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.protectiveCard, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}
+              onPress={() => setJourneySentinelVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.protectiveIcon}>⏱️</Text>
+              <Text style={[styles.protectiveTitle, { color: '#15803D' }]}>Safe Arrival</Text>
+              <Text style={styles.protectiveSub}>Night travel timer</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.protectiveCard, { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }]}
+              onPress={() => setFakeCallVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.protectiveIcon}>📞</Text>
+              <Text style={[styles.protectiveTitle, { color: '#C2410C' }]}>Fake Call</Text>
+              <Text style={styles.protectiveSub}>Discreet cab exit</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* High-Visibility Emergency SOS Trigger */}
         <View style={styles.sosSection}>
           <Animated.View
@@ -185,8 +278,8 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         </View>
 
         <Text style={styles.sosHelperText}>
-          Instant dispatch: broadcasts live GPS coordinates & Medical ID to{' '}
-          {contacts.length} trusted guardians
+          Instant dispatch: sends real-time GPS link & Medical ID to{' '}
+          {contacts.length} emergency contacts
         </Text>
 
         {/* Emergency Quick Hotlines Row */}
@@ -204,13 +297,13 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.hotlineBtn, { backgroundColor: '#FEF3C7' }]}
-              onPress={() => handleCall('101')}
+              style={[styles.hotlineBtn, { backgroundColor: '#FFF1F2' }]}
+              onPress={() => handleCall('1091')}
               activeOpacity={0.8}
             >
-              <Text style={styles.hotlineIcon}>🚒</Text>
-              <Text style={[styles.hotlineLabel, { color: '#B45309' }]}>Fire</Text>
-              <Text style={styles.hotlineNum}>101</Text>
+              <Text style={styles.hotlineIcon}>👩</Text>
+              <Text style={[styles.hotlineLabel, { color: '#BE123C' }]}>Women</Text>
+              <Text style={styles.hotlineNum}>1091</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -223,17 +316,15 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
               <Text style={styles.hotlineNum}>108</Text>
             </TouchableOpacity>
 
-            {primaryContact && (
-              <TouchableOpacity
-                style={[styles.hotlineBtn, { backgroundColor: '#F3E8FF' }]}
-                onPress={() => handleCall(primaryContact.phone)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.hotlineIcon}>🛡️</Text>
-                <Text style={[styles.hotlineLabel, { color: '#7E22CE' }]}>Guardian</Text>
-                <Text style={styles.hotlineNum}>Call</Text>
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              style={[styles.hotlineBtn, { backgroundColor: '#FEF3C7' }]}
+              onPress={() => handleCall('181')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.hotlineIcon}>🛡️</Text>
+              <Text style={[styles.hotlineLabel, { color: '#B45309' }]}>Helpline</Text>
+              <Text style={styles.hotlineNum}>181</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -252,7 +343,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
               <Text style={styles.cardIcon}>🏥</Text>
             </View>
             <Text style={styles.cardTitle}>Safe Zones</Text>
-            <Text style={styles.cardDesc}>Hospitals, Police & Shelters</Text>
+            <Text style={styles.cardDesc}>Hospitals, Police, Shelters</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -264,7 +355,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
               <Text style={styles.cardIcon}>⚠️</Text>
             </View>
             <Text style={styles.cardTitle}>Live Hazards</Text>
-            <Text style={styles.cardDesc}>Crowd Incident Reports</Text>
+            <Text style={styles.cardDesc}>Safety Alerts & Roadblocks</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -272,11 +363,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             activeOpacity={0.7}
             onPress={() => navigation.navigate('ChatbotTab')}
           >
-            <View style={[styles.cardIconBg, { backgroundColor: '#DCFCE7' }]}>
+            <View style={[styles.cardIconBg, { backgroundColor: '#FCE7F3' }]}>
               <Text style={styles.cardIcon}>💬</Text>
             </View>
             <Text style={styles.cardTitle}>MIA Assistant</Text>
-            <Text style={styles.cardDesc}>AI First Aid & Triage</Text>
+            <Text style={styles.cardDesc}>Emergency AI • MR / HI / EN</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -293,10 +384,28 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         </View>
       </ScrollView>
 
-      {/* SOS Countdown & Dispatch Modal */}
+      {/* Standard SOS Countdown & Dispatch Modal */}
       <SosModal
         visible={sosModalVisible}
         onClose={() => setSosModalVisible(false)}
+        userCoords={coords}
+      />
+
+      {/* Dedicated Women Safety Modals */}
+      <BeingFollowedModal
+        visible={beingFollowedVisible}
+        onClose={() => setBeingFollowedVisible(false)}
+        userCoords={coords}
+      />
+
+      <FakeCallModal
+        visible={fakeCallVisible}
+        onClose={() => setFakeCallVisible(false)}
+      />
+
+      <JourneySentinelModal
+        visible={journeySentinelVisible}
+        onClose={() => setJourneySentinelVisible(false)}
         userCoords={coords}
       />
     </SafeAreaView>
@@ -317,7 +426,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    marginBottom: 16,
   },
   greetingSub: {
     fontSize: 14,
@@ -359,7 +468,7 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.cardBg,
     borderRadius: 16,
     padding: 14,
-    marginBottom: 20,
+    marginBottom: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
@@ -399,23 +508,165 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0284C7',
   },
+  guardianBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 16,
+  },
+  guardianAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#DCFCE7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  guardianAvatarIcon: {
+    fontSize: 18,
+  },
+  guardianInfo: {
+    flex: 1,
+  },
+  guardianBadge: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#16A34A',
+    letterSpacing: 0.8,
+  },
+  guardianName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: THEME.textPrimary,
+  },
+  guardianPhone: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+  },
+  guardianCallBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16A34A',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    gap: 4,
+  },
+  guardianCallIcon: {
+    fontSize: 12,
+  },
+  guardianCallText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  womenSafetySection: {
+    marginBottom: 20,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  shieldBadge: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.primary,
+    letterSpacing: 0.8,
+  },
+  beingFollowedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#881337',
+    borderRadius: 16,
+    padding: 14,
+    shadowColor: '#881337',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+    marginBottom: 10,
+  },
+  bannerIconContainer: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  bannerIcon: {
+    fontSize: 22,
+  },
+  bannerTextCol: {
+    flex: 1,
+  },
+  bannerTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  bannerDesc: {
+    fontSize: 11,
+    color: '#FECDD3',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  bannerArrow: {
+    fontSize: 18,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    marginLeft: 8,
+  },
+  protectiveGrid: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  protectiveCard: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  protectiveIcon: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
+  protectiveTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  protectiveSub: {
+    fontSize: 9,
+    color: THEME.textSecondary,
+    marginTop: 2,
+    textAlign: 'center',
+  },
   sosSection: {
     alignItems: 'center',
     justifyContent: 'center',
     marginVertical: 10,
-    height: SOS_BUTTON_SIZE + 40,
+    height: SOS_BUTTON_SIZE + 36,
   },
   sosOuterRing: {
     position: 'absolute',
-    width: SOS_BUTTON_SIZE + 40,
-    height: SOS_BUTTON_SIZE + 40,
-    borderRadius: (SOS_BUTTON_SIZE + 40) / 2,
+    width: SOS_BUTTON_SIZE + 36,
+    height: SOS_BUTTON_SIZE + 36,
+    borderRadius: (SOS_BUTTON_SIZE + 36) / 2,
     backgroundColor: THEME.primaryGlow,
   },
   sosMiddleRing: {
-    width: SOS_BUTTON_SIZE + 16,
-    height: SOS_BUTTON_SIZE + 16,
-    borderRadius: (SOS_BUTTON_SIZE + 16) / 2,
+    width: SOS_BUTTON_SIZE + 14,
+    height: SOS_BUTTON_SIZE + 14,
+    borderRadius: (SOS_BUTTON_SIZE + 14) / 2,
     backgroundColor: 'rgba(230, 57, 70, 0.15)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -436,7 +687,7 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
   },
   sosText: {
-    fontSize: 34,
+    fontSize: 32,
     fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 2,
@@ -452,13 +703,21 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontSize: 12,
     color: THEME.textSecondary,
-    fontWeight: '500',
-    marginBottom: 24,
-    paddingHorizontal: 16,
+    marginBottom: 20,
+    paddingHorizontal: 20,
     lineHeight: 18,
   },
   hotlinesSection: {
     marginBottom: 24,
+  },
+  sectionHeader: {
+    marginBottom: 12,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+    letterSpacing: -0.3,
   },
   hotlinesRow: {
     flexDirection: 'row',
@@ -468,9 +727,9 @@ const styles = StyleSheet.create({
   },
   hotlineBtn: {
     flex: 1,
-    alignItems: 'center',
     paddingVertical: 12,
     borderRadius: 14,
+    alignItems: 'center',
   },
   hotlineIcon: {
     fontSize: 20,
@@ -478,22 +737,13 @@ const styles = StyleSheet.create({
   },
   hotlineLabel: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   hotlineNum: {
-    fontSize: 10,
-    color: THEME.textSecondary,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  sectionHeader: {
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 17,
+    fontSize: 12,
     fontWeight: '800',
     color: THEME.textPrimary,
-    letterSpacing: -0.3,
+    marginTop: 2,
   },
   grid: {
     flexDirection: 'row',
