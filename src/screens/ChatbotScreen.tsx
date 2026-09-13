@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChatMessage, TriageGuide } from '../types';
 import { SosService } from '../services/sosService';
+import { ChatbotScreenNavigationProp, ChatbotRouteProp } from '../types/navigation';
 
 const THEME = {
   primary: '#E63946',
@@ -158,7 +159,12 @@ function detectLanguage(text: string): DetectedLanguage {
   return 'english';
 }
 
-export default function ChatbotScreen() {
+interface ChatbotScreenProps {
+  navigation?: ChatbotScreenNavigationProp;
+  route?: ChatbotRouteProp;
+}
+
+export default function ChatbotScreen({ navigation, route }: ChatbotScreenProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'm-1',
@@ -229,6 +235,16 @@ export default function ChatbotScreen() {
     }, 350);
   };
 
+  const lastProcessedQuery = useRef<string | null>(null);
+
+  useEffect(() => {
+    const initialQuery = route?.params?.initialQuery;
+    if (initialQuery && initialQuery !== lastProcessedQuery.current) {
+      lastProcessedQuery.current = initialQuery;
+      handleSendMessage(initialQuery);
+    }
+  }, [route?.params?.initialQuery]);
+
   const handleVoiceShortcut = (spokenText: string) => {
     setMicModalVisible(false);
     handleSendMessage(spokenText);
@@ -264,6 +280,10 @@ export default function ChatbotScreen() {
         return '🫀 [मराठी] छातीत दुखणे / हृदयविकाराचा झटका:\n\n१. छातीत तीव्र जडपणा, डाव्या हाताकडे किंवा जबड्याकडे जाणारी कळ ही हृदयविकाराची लक्षणे असू शकतात.\n२. रुग्णाला शांतपणे बसवा, श्वास घेणे सुलभ करा.\n३. त्वरित १०८ किंवा ९११ वर संपर्क करा.\n४. रुग्णाला ऍस्पिरिन (Aspirin) चावून खाण्यास द्या (ऍलर्जी नसल्यास).';
       }
 
+      if (q.includes('sos') || q.includes('मदत') || q.includes('सुरक्षा') || q.includes('पाठलाग') || q.includes('madat') || q.includes('danger') || q.includes('police')) {
+        return '🆘 [मराठी] मिया (MIA) आपत्कालीन सुरक्षा मार्गदर्शन:\n\n१. घाबरू नका, शांत राहा. आपले थेट GPS स्थान पालकांना आधीच पाठवले गेले आहे.\n२. जर कोणी पाठलाग करत असेल, तर तात्काळ गर्दीच्या ठिकाणी, दुकानात किंवा पोलीस ठाण्यात जा.\n३. आणीबाणीत त्वरित ११२ (पोलीस) किंवा १०९१ (महिला हेल्पलाईन) वर कॉल करा.\n४. लपलेले असल्यास फोन सायलेंट ठेवा. मदत पोहोचेपर्यंत सुरक्षित राहा.';
+      }
+
       return `🛡️ [मराठी] मिया (MIA) सुरक्षा सहाय्यक:\n\nमला समजले की तुम्हाला मदत हवी आहे ("${query}").\n\n१. घटनास्थळी स्वतःची सुरक्षितता आधी तपासा.\n२. गंभीर परिस्थितीत १०८ किंवा ११२ वर तात्काळ संपर्क करा.\n३. विशिष्ट प्रथमोपचारासाठी वरील CPR, रक्तस्राव, घशात अडकणे किंवा भाजणे या कार्ड्सवर टॅप करा.`;
     }
 
@@ -293,10 +313,18 @@ export default function ChatbotScreen() {
         return '🫀 [हिंदी] सीने में दर्द / दिल का दौरा (Heart Attack):\n\n१. सीने में तेज जकड़न, भारीपन जो बाएं हाथ या जबड़े तक फैले दिल के दौरे के लक्षण हैं।\n२. मरीज को आराम से बिठाएं और कपड़े ढीले करें।\n३. तुरंत १०८ या ९११ पर कॉल करें।\n४. यदि मरीज को एलर्जी न हो, तो एस्पिरिन (Aspirin) चबाने को दें।';
       }
 
+      if (q.includes('sos') || q.includes('मदद') || q.includes('सुरक्षा') || q.includes('पीछा') || q.includes('danger') || q.includes('police') || q.includes('bachao')) {
+        return '🆘 [हिंदी] मिया (MIA) आपातकालीन सुरक्षा मार्गदर्शन:\n\n१. शांत रहें और घबराएं नहीं। आपकी लाइव जीपीएस लोकेशन पहले ही माता-पिता को भेज दी गई है।\n२. अगर कोई पीछा कर रहा है या खतरा महसूस हो रहा है, तो तुरंत किसी दुकान, पेट्रोल पंप या भीड़ वाली जगह पर जाएं।\n३. तुरंत सहायता के लिए ११२ (पुलिस) या १०९१ (महिला हेल्पलाइन) पर कॉल करें।\n४. यदि आप छुपकर बैठी हैं, तो फोन को साइलेंट रखें। मदद रास्ते में है।';
+      }
+
       return `🛡️ [हिंदी] मिया (MIA) सुरक्षा सहायक:\n\nमुझे समझ आया कि आपको सहायता चाहिए ("${query}")।\n\n१. पहले अपने आसपास की सुरक्षा सुनिश्चित करें।\n२. आपातकालीन स्थिति में तुरंत १०८ या ११२ पर कॉल करें।\n३. सीपीआर, ब्लीडिंग या जलने से संबंधित तुरंत कदमों के लिए ऊपर दिए गए कार्ड्स पर क्लिक करें।`;
     }
 
     // --- ENGLISH ---
+    if (q.includes('sos') || q.includes('safe') || q.includes('follow') || q.includes('danger') || q.includes('trouble') || q.includes('scared') || q.includes('emergency')) {
+      return '🆘 [English] MIA EMERGENCY SAFETY PROTOCOL:\n\n1. Take a slow, deep breath. Your live GPS coordinates have been broadcast to your primary guardian/parents.\n2. If someone is following you or you feel unsafe, head immediately toward a well-lit, crowded place (store, metro station, fuel station).\n3. If in immediate danger, dial 112 (Police Dispatch) or 1091 (Women Safety Helpline).\n4. If you are hiding, keep your phone in Silent mode and stay low. Help is on the way.';
+    }
+
     if (q.includes('chok') || q.includes('heimlich')) {
       return '🗣️ [English] CHOKING EMERGENCY RESPONSE:\n\n1. Ask: "Are you choking?" If they cannot speak, cough, or breathe, act immediately.\n2. Stand behind them and wrap arms around their waist.\n3. Make a fist with thumb side against upper abdomen (just above navel).\n4. Deliver sharp, upward thrusts (Heimlich) until airway is cleared.\n5. If person collapses, call 911 / 108 and start CPR immediately.';
     }

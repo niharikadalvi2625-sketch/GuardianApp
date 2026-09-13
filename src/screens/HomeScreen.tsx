@@ -636,6 +636,12 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         visible={sosModalVisible}
         onClose={() => setSosModalVisible(false)}
         userCoords={coords}
+        onTalkWithMia={() => {
+          setSosModalVisible(false);
+          navigation.navigate('ChatbotTab', {
+            initialQuery: 'I pressed the SOS button! What should I do right now to stay safe?',
+          });
+        }}
       />
 
       {/* Women Safety Modals */}
@@ -643,6 +649,12 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         visible={beingFollowedVisible}
         onClose={() => setBeingFollowedVisible(false)}
         userCoords={coords}
+        onTalkWithMia={() => {
+          setBeingFollowedVisible(false);
+          navigation.navigate('ChatbotTab', {
+            initialQuery: 'I feel unsafe and someone might be following me. What should I do?',
+          });
+        }}
       />
 
       <FakeCallModal

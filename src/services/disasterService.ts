@@ -111,3 +111,4 @@ class DisasterServiceImpl {
 
 export const DisasterService = new DisasterServiceImpl();
 export default DisasterService;
+

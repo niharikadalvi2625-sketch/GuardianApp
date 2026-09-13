@@ -17,6 +17,7 @@ interface BeingFollowedModalProps {
   visible: boolean;
   onClose: () => void;
   userCoords: LocationCoords | null;
+  onTalkWithMia?: () => void;
 }
 
 const THEME = {
@@ -37,6 +38,7 @@ export default function BeingFollowedModal({
   visible,
   onClose,
   userCoords,
+  onTalkWithMia,
 }: BeingFollowedModalProps) {
   const [coords, setCoords] = useState<LocationCoords | null>(userCoords);
   const [primaryGuardian, setPrimaryGuardian] = useState<EmergencyContact | null>(null);
@@ -163,6 +165,35 @@ export default function BeingFollowedModal({
               </Text>
             </View>
           )}
+
+          {/* TALK WITH MIA ASSISTANT (AI DEFENSE GUIDE) */}
+          <TouchableOpacity
+            style={styles.miaCard}
+            onPress={() => {
+              if (onTalkWithMia) {
+                onTalkWithMia();
+              } else {
+                onClose();
+              }
+            }}
+            activeOpacity={0.85}
+          >
+            <View style={styles.miaIconCircle}>
+              <Text style={styles.miaIcon}>💬</Text>
+            </View>
+            <View style={styles.miaTextCol}>
+              <View style={styles.miaTitleRow}>
+                <Text style={styles.miaTitle}>Ask MIA Assistant for Guidance</Text>
+                <View style={styles.miaBadge}>
+                  <Text style={styles.miaBadgeText}>AI GUIDE</Text>
+                </View>
+              </View>
+              <Text style={styles.miaSub}>
+                What to do if being followed • Safe shelters • EN / MR / HI
+              </Text>
+            </View>
+            <Text style={styles.miaArrow}>➔</Text>
+          </TouchableOpacity>
 
           {/* PRIMARY OPTION 1: 🤫 SILENT SOS (HIDING / CANNOT MAKE NOISE) */}
           <View style={styles.modeCardHighlight}>
@@ -573,6 +604,66 @@ const styles = StyleSheet.create({
   },
   footerSpace: {
     height: 32,
+  },
+  miaCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#3B0764',
+    borderWidth: 1.5,
+    borderColor: '#A855F7',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+  },
+  miaIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#7C3AED',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  miaIcon: {
+    fontSize: 20,
+    color: '#FFFFFF',
+  },
+  miaTextCol: {
+    flex: 1,
+  },
+  miaTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  miaTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FAF5FF',
+  },
+  miaBadge: {
+    backgroundColor: '#9333EA',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  miaBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  miaSub: {
+    fontSize: 10,
+    color: '#D8B4FE',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  miaArrow: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#C084FC',
+    marginLeft: 6,
   },
 });
 
