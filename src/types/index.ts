@@ -111,3 +111,39 @@ export interface SafetyNewsItem {
   source: string;
   isUrgent?: boolean;
 }
+
+export type AuthProvider = 'google' | 'phone' | 'email' | 'guest';
+
+export interface AuthUser {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  avatarUrl?: string;
+  provider: AuthProvider;
+  createdAt: number;
+  lastLoginAt: number;
+  isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
+}
+
+export interface CloudSyncState {
+  isSynced: boolean;
+  lastSyncTimestamp: number;
+  lastSyncedLocation?: LocationCoords;
+  syncedContactsCount: number;
+  syncedSheltersCount: number;
+  syncStatus: 'idle' | 'syncing' | 'synced' | 'error';
+  lastError?: string;
+}
+
+export interface CloudBackupData {
+  userId: string;
+  userEmail?: string;
+  lastSyncedAt: number;
+  deviceModel: string;
+  lastKnownLocation?: LocationCoords;
+  emergencyContacts: EmergencyContact[];
+  userProfile: UserProfile;
+  customShelters: SafeZone[];
+}

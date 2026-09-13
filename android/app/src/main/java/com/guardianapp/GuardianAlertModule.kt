@@ -103,5 +103,50 @@ class GuardianAlertModule(private val reactContext: ReactApplicationContext) :
             promise.resolve(false)
         }
     }
+
+    private val prefs by lazy {
+        reactContext.getSharedPreferences("guardian_app_secure_prefs", Context.MODE_PRIVATE)
+    }
+
+    @ReactMethod
+    fun setStorageItem(key: String, value: String, promise: Promise) {
+        try {
+            prefs.edit().putString(key, value).apply()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("STORAGE_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun getStorageItem(key: String, promise: Promise) {
+        try {
+            val value = prefs.getString(key, null)
+            promise.resolve(value)
+        } catch (e: Exception) {
+            promise.reject("STORAGE_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun removeStorageItem(key: String, promise: Promise) {
+        try {
+            prefs.edit().remove(key).apply()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("STORAGE_ERROR", e.message)
+        }
+    }
+
+    @ReactMethod
+    fun clearStorage(promise: Promise) {
+        try {
+            prefs.edit().clear().apply()
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("STORAGE_ERROR", e.message)
+        }
+    }
 }
+
 

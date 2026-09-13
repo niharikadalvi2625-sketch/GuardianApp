@@ -1,20 +1,66 @@
+import { NativeModules } from 'react-native';
+
+const { GuardianAlert } = NativeModules;
+
 class StorageServiceImpl {
-  private cache: Map<string, string> = new Map();
+  private memoryCache: Map<string, string> = new Map();
 
   async getItem(key: string): Promise<string | null> {
-    return this.cache.get(key) ?? null;
+    // Check in-memory cache first
+    if (this.memoryCache.has(key)) {
+      return this.memoryCache.get(key) ?? null;
+    }
+
+    // Try native Android SharedPreferences for permanent on-disk persistence
+    if (GuardianAlert && typeof GuardianAlert.getStorageItem === 'function') {
+      try {
+        const val = await GuardianAlert.getStorageItem(key);
+        if (val !== null && val !== undefined) {
+          this.memoryCache.set(key, val);
+          return val;
+        }
+      } catch {
+        // Fall back to memory
+      }
+    }
+
+    return null;
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    this.cache.set(key, value);
+    this.memoryCache.set(key, value);
+
+    if (GuardianAlert && typeof GuardianAlert.setStorageItem === 'function') {
+      try {
+        await GuardianAlert.setStorageItem(key, value);
+      } catch {
+        // Native write error tolerated
+      }
+    }
   }
 
   async removeItem(key: string): Promise<void> {
-    this.cache.delete(key);
+    this.memoryCache.delete(key);
+
+    if (GuardianAlert && typeof GuardianAlert.removeStorageItem === 'function') {
+      try {
+        await GuardianAlert.removeStorageItem(key);
+      } catch {
+        // Tolerated
+      }
+    }
   }
 
   async clear(): Promise<void> {
-    this.cache.clear();
+    this.memoryCache.clear();
+
+    if (GuardianAlert && typeof GuardianAlert.clearStorage === 'function') {
+      try {
+        await GuardianAlert.clearStorage();
+      } catch {
+        // Tolerated
+      }
+    }
   }
 }
 

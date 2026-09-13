@@ -8,10 +8,14 @@ import {
   TextInput,
   Alert,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SosService } from '../services/sosService';
-import { UserProfile, EmergencyContact, SosAlertSession } from '../types';
+import { AuthService } from '../services/authService';
+import { CloudSyncService } from '../services/cloudSyncService';
+import AuthModal from '../components/AuthModal';
+import { UserProfile, EmergencyContact, SosAlertSession, AuthUser, CloudSyncState } from '../types';
 
 const THEME = {
   primary: '#E63946',
@@ -43,6 +47,12 @@ export default function ProfileScreen() {
   const [isEditingProfile, setIsEditingProfile] = useState<boolean>(false);
   const [addContactModal, setAddContactModal] = useState<boolean>(false);
 
+  // Authentication & Cloud Sync State
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [syncState, setSyncState] = useState<CloudSyncState | null>(null);
+  const [authModalVisible, setAuthModalVisible] = useState<boolean>(false);
+  const [syncing, setSyncing] = useState<boolean>(false);
+
   // New Contact Form State
   const [newContactName, setNewContactName] = useState<string>('');
   const [newContactPhone, setNewContactPhone] = useState<string>('');
@@ -51,6 +61,16 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     loadData();
+    const unsubAuth = AuthService.onAuthStateChanged((user) => {
+      setCurrentUser(user);
+    });
+    const unsubSync = CloudSyncService.onSyncStateChanged((state) => {
+      setSyncState(state);
+    });
+    return () => {
+      unsubAuth();
+      unsubSync();
+    };
   }, []);
 
   const loadData = async () => {
@@ -120,6 +140,30 @@ export default function ProfileScreen() {
     setContacts(updated);
   };
 
+  const handleManualSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await CloudSyncService.syncToCloud();
+      Alert.alert(res.success ? '☁️ Google Cloud Synced' : 'Sync Notice', res.message);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    Alert.alert('Sign Out', 'Are you sure you want to disconnect? Your offline emergency data will stay safe on this device.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          await AuthService.signOut();
+          setCurrentUser(null);
+        },
+      },
+    ]);
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -131,13 +175,114 @@ export default function ProfileScreen() {
           </Text>
         </View>
 
+        {/* --- GOOGLE ACCOUNT & CLOUD SYNC CARD --- */}
+        {currentUser && currentUser.provider !== 'guest' ? (
+          <View style={styles.accountCard}>
+            <View style={styles.accountTopRow}>
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarText}>
+                  {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'G'}
+                </Text>
+              </View>
+              <View style={styles.accountInfoCol}>
+                <View style={styles.accountNameRow}>
+                  <Text style={styles.accountUserName} numberOfLines={1}>
+                    {currentUser.name}
+                  </Text>
+                  <View style={styles.providerBadge}>
+                    <Text style={styles.providerBadgeText}>
+                      {currentUser.provider === 'google' ? 'GOOGLE SYNCED' : currentUser.provider.toUpperCase()}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.accountUserEmail} numberOfLines={1}>
+                  {currentUser.email || currentUser.phone || 'Connected Account'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Cloud Sync Status Info */}
+            <View style={styles.cloudSyncBox}>
+              <View style={styles.syncStatusRow}>
+                <Text style={styles.syncStatusDot}>🟢</Text>
+                <Text style={styles.syncStatusHeadline}>
+                  Google Cloud Live Sync Active
+                </Text>
+              </View>
+
+              <Text style={styles.syncDetailText}>
+                📍 Last Location:{' '}
+                <Text style={styles.syncDetailBold}>
+                  {syncState?.lastSyncedLocation?.city ||
+                    syncState?.lastSyncedLocation?.subLocality ||
+                    'Auto-anchored to GPS'}
+                </Text>
+              </Text>
+              <Text style={styles.syncDetailText}>
+                🛡️ Backed Up Guardians:{' '}
+                <Text style={styles.syncDetailBold}>{contacts.length} emergency contacts</Text>
+              </Text>
+              <Text style={styles.syncDetailText}>
+                🩺 Medical Profile:{' '}
+                <Text style={styles.syncDetailBold}>Synced ({profile.bloodType || 'ID saved'})</Text>
+              </Text>
+            </View>
+
+            {/* Action Buttons: Sync Now & Sign Out */}
+            <View style={styles.accountActionsRow}>
+              <TouchableOpacity
+                style={styles.syncNowBtn}
+                onPress={handleManualSync}
+                disabled={syncing}
+                activeOpacity={0.8}
+              >
+                {syncing ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Text style={styles.syncNowIcon}>☁️</Text>
+                    <Text style={styles.syncNowText}>Sync to Cloud Now</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.signOutBtn}
+                onPress={handleSignOut}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.signOutText}>Sign Out</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.connectGoogleCard}
+            onPress={() => setAuthModalVisible(true)}
+            activeOpacity={0.88}
+          >
+            <View style={styles.connectGoogleIconBg}>
+              <Text style={styles.connectGoogleIcon}>🌐</Text>
+            </View>
+            <View style={styles.connectGoogleTextCol}>
+              <Text style={styles.connectGoogleTitle}>Sign in with Google to Sync Location</Text>
+              <Text style={styles.connectGoogleSub}>
+                Automatically back up your live coordinates, parents' numbers, and medical ID to Google Cloud.
+              </Text>
+              <View style={styles.connectGooglePill}>
+                <Text style={styles.connectGooglePillText}>CONNECT GOOGLE ACCOUNT ➔</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        )}
+
         {/* Offline Status Pill */}
         <View style={styles.offlineBanner}>
           <Text style={styles.offlineIcon}>⚡</Text>
           <View style={styles.offlineTextContainer}>
-            <Text style={styles.offlineTitle}>Offline Mode Active</Text>
+            <Text style={styles.offlineTitle}>Device Disk Storage Active</Text>
             <Text style={styles.offlineSub}>
-              Contacts & Medical ID cached locally. Works without cellular data.
+              Contacts & Medical ID securely cached in native disk storage. Works offline.
             </Text>
           </View>
         </View>
@@ -396,6 +541,15 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
+
+      <AuthModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
+        onSuccess={(u) => {
+          setCurrentUser(u);
+          loadData();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -753,5 +907,191 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '800',
+  },
+  accountCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  accountTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  avatarCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#4285F4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  avatarText: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  accountInfoCol: {
+    flex: 1,
+  },
+  accountNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  accountUserName: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+    flex: 1,
+    marginRight: 8,
+  },
+  providerBadge: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  providerBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  accountUserEmail: {
+    fontSize: 12,
+    color: THEME.textSecondary,
+  },
+  cloudSyncBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    marginBottom: 12,
+  },
+  syncStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  syncStatusDot: {
+    fontSize: 10,
+    marginRight: 6,
+  },
+  syncStatusHeadline: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#15803D',
+    letterSpacing: 0.3,
+  },
+  syncDetailText: {
+    fontSize: 12,
+    color: THEME.textSecondary,
+    marginBottom: 2,
+  },
+  syncDetailBold: {
+    fontWeight: '700',
+    color: THEME.textPrimary,
+  },
+  accountActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  syncNowBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    paddingVertical: 10,
+  },
+  syncNowIcon: {
+    fontSize: 14,
+    marginRight: 6,
+  },
+  syncNowText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  signOutBtn: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  signOutText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: THEME.textSecondary,
+  },
+  connectGoogleCard: {
+    flexDirection: 'row',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#93C5FD',
+    marginBottom: 16,
+    shadowColor: '#3B82F6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  connectGoogleIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  connectGoogleIcon: {
+    fontSize: 22,
+  },
+  connectGoogleTextCol: {
+    flex: 1,
+  },
+  connectGoogleTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1E40AF',
+    marginBottom: 3,
+  },
+  connectGoogleSub: {
+    fontSize: 12,
+    color: THEME.textSecondary,
+    lineHeight: 16,
+    marginBottom: 8,
+  },
+  connectGooglePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  connectGooglePillText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
 });

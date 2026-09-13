@@ -19,17 +19,22 @@ import { LocationService } from '../services/locationService';
 import { SosService } from '../services/sosService';
 import { AlertService } from '../services/alertService';
 import { DisasterService } from '../services/disasterService';
+import { AuthService } from '../services/authService';
+import { CloudSyncService } from '../services/cloudSyncService';
 import {
   LocationCoords,
   UserProfile,
   EmergencyContact,
   DisasterThreatAssessment,
   SafetyNewsItem,
+  AuthUser,
+  CloudSyncState,
 } from '../types';
 import SosModal from '../components/SosModal';
 import BeingFollowedModal from '../components/BeingFollowedModal';
 import FakeCallModal from '../components/FakeCallModal';
 import JourneySentinelModal from '../components/JourneySentinelModal';
+import AuthModal from '../components/AuthModal';
 
 const { width } = Dimensions.get('window');
 const SOS_BUTTON_SIZE = width * 0.32;
@@ -76,6 +81,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [parentModalVisible, setParentModalVisible] = useState<boolean>(false);
   const [parentName, setParentName] = useState<string>('');
   const [parentPhone, setParentPhone] = useState<string>('');
+  const [authModalVisible, setAuthModalVisible] = useState<boolean>(false);
+
+  // Authentication & Cloud Sync State
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [syncState, setSyncState] = useState<CloudSyncState | null>(null);
 
   // Disaster & News State
   const [assessment, setAssessment] = useState<DisasterThreatAssessment | null>(null);
@@ -86,6 +96,14 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
   useEffect(() => {
     loadData();
+
+    const unsubAuth = AuthService.onAuthStateChanged((user) => {
+      setCurrentUser(user);
+    });
+
+    const unsubSync = CloudSyncService.onSyncStateChanged((state) => {
+      setSyncState(state);
+    });
 
     const pulse = Animated.loop(
       Animated.sequence([
@@ -102,7 +120,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       ])
     );
     pulse.start();
-    return () => pulse.stop();
+    return () => {
+      pulse.stop();
+      unsubAuth();
+      unsubSync();
+    };
   }, []);
 
   useEffect(() => {
@@ -110,7 +132,12 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     const news = DisasterService.getSafetyNews(coords);
     setAssessment(threat);
     setNewsList(news);
-  }, [coords]);
+
+    // Auto-sync live GPS coordinates to Google Cloud if user is signed in
+    if (coords && currentUser && currentUser.provider !== 'guest') {
+      CloudSyncService.syncToCloud(coords);
+    }
+  }, [coords, currentUser]);
 
   const loadData = async () => {
     refreshLocation();
@@ -230,12 +257,35 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           <View style={styles.headerTextCol}>
             <Text style={styles.headerGreeting}>Stay Protected,</Text>
             <Text style={styles.headerUserName}>
-              {profile ? profile.name : 'Guardian User'}
+              {currentUser?.name || (profile ? profile.name : 'Guardian User')}
             </Text>
           </View>
-          <View style={styles.shieldPill}>
-            <View style={styles.shieldPulseDot} />
-            <Text style={styles.shieldPillText}>SHIELD ON</Text>
+          <View style={styles.headerRightRow}>
+            {currentUser && currentUser.provider !== 'guest' ? (
+              <TouchableOpacity
+                style={styles.cloudSyncPill}
+                onPress={() => navigation.navigate('ProfileTab')}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cloudSyncPillIcon}>☁️</Text>
+                <Text style={styles.cloudSyncPillText}>
+                  {syncState?.syncStatus === 'syncing' ? 'SYNCING...' : 'SYNCED'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.cloudSignInPill}
+                onPress={() => setAuthModalVisible(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cloudSignInPillIcon}>🌐</Text>
+                <Text style={styles.cloudSignInPillText}>SYNC GPS</Text>
+              </TouchableOpacity>
+            )}
+            <View style={styles.shieldPill}>
+              <View style={styles.shieldPulseDot} />
+              <Text style={styles.shieldPillText}>SHIELD ON</Text>
+            </View>
           </View>
         </View>
 
@@ -734,6 +784,16 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           </View>
         </View>
       </Modal>
+
+      {/* Authentication & Google Cloud Sync Modal */}
+      <AuthModal
+        visible={authModalVisible}
+        onClose={() => setAuthModalVisible(false)}
+        onSuccess={(u) => {
+          setCurrentUser(u);
+          loadData();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -772,6 +832,51 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: THEME.textPrimary,
     letterSpacing: -0.4,
+  },
+  headerRightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  cloudSyncPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  cloudSyncPillIcon: {
+    fontSize: 12,
+    marginRight: 4,
+  },
+  cloudSyncPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#2563EB',
+    letterSpacing: 0.5,
+  },
+  cloudSignInPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  cloudSignInPillIcon: {
+    fontSize: 12,
+    marginRight: 4,
+  },
+  cloudSignInPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#475569',
+    letterSpacing: 0.5,
   },
   shieldPill: {
     flexDirection: 'row',
