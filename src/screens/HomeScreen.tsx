@@ -642,6 +642,10 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             initialQuery: 'I pressed the SOS button! What should I do right now to stay safe?',
           });
         }}
+        onNavigateToSafeZones={() => {
+          setSosModalVisible(false);
+          navigation.navigate('SafeZonesTab');
+        }}
       />
 
       {/* Women Safety Modals */}
@@ -654,6 +658,10 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           navigation.navigate('ChatbotTab', {
             initialQuery: 'I feel unsafe and someone might be following me. What should I do?',
           });
+        }}
+        onNavigateToSafeZones={() => {
+          setBeingFollowedVisible(false);
+          navigation.navigate('SafeZonesTab');
         }}
       />
 

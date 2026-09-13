@@ -19,6 +19,7 @@ interface SosModalProps {
   userCoords: LocationCoords | null;
   immediateTrigger?: boolean;
   onTalkWithMia?: () => void;
+  onNavigateToSafeZones?: () => void;
 }
 
 const { width, height } = Dimensions.get('window');
@@ -29,6 +30,7 @@ export default function SosModal({
   userCoords,
   immediateTrigger = true,
   onTalkWithMia,
+  onNavigateToSafeZones,
 }: SosModalProps) {
   const [countdown, setCountdown] = useState<number>(immediateTrigger ? 0 : 5);
   const [isTriggered, setIsTriggered] = useState<boolean>(immediateTrigger);
@@ -156,28 +158,25 @@ export default function SosModal({
       transparent
       onRequestClose={handleCancel}
     >
-      <View style={styles.backdrop}>
-        <View style={styles.cardContainer}>
-          {/* TOP POPUP BAR WITH PROMINENT CANCEL BUTTON */}
-          <View style={styles.popupTopBar}>
-            <View style={styles.popupTopStatus}>
-              <View style={[styles.statusDot, !isTriggered && { backgroundColor: '#F59E0B' }]} />
-              <Text style={styles.popupTopStatusText}>
-                {isTriggered ? 'SOS BROADCAST ACTIVE' : 'SOS COUNTDOWN'}
-              </Text>
-            </View>
-
-            {/* Clear, prominent Cancel button for the pop up bar */}
-            <TouchableOpacity
-              style={styles.popupCancelBtn}
-              onPress={handleCancel}
-              activeOpacity={0.7}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              accessibilityLabel="Cancel SOS popup"
-            >
-              <Text style={styles.popupCancelBtnText}>✕ Cancel</Text>
-            </TouchableOpacity>
-          </View>
+      <TouchableOpacity
+        style={styles.backdrop}
+        activeOpacity={1}
+        onPress={handleCancel}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.cardContainer}
+          onPress={(e) => e.stopPropagation()}
+        >
+          {/* Top-Right Corner Close Button (Always visible) */}
+          <TouchableOpacity
+            style={styles.cornerCloseBtn}
+            onPress={handleCancel}
+            hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
+            accessibilityLabel="Close SOS Dialog"
+          >
+            <Text style={styles.cornerCloseText}>✕</Text>
+          </TouchableOpacity>
 
           <ScrollView
             style={styles.modalScroll}
@@ -187,6 +186,10 @@ export default function SosModal({
             {!isTriggered ? (
               /* --- Phase 1: 5-Second Countdown State --- */
               <View style={styles.countdownContainer}>
+                <View style={styles.urgencyPill}>
+                  <Text style={styles.urgencyText}>⚠️ SOS COUNTDOWN</Text>
+                </View>
+
                 <Text style={styles.warningTitle}>Broadcasting Distress Signal</Text>
                 <Text style={styles.warningDesc}>
                   Distress alert and real-time GPS coordinates will be sent to your{' '}
@@ -226,9 +229,15 @@ export default function SosModal({
             ) : (
               /* --- Phase 2: Active SOS Emergency Dispatch State --- */
               <View style={styles.activeContainer}>
+                {/* Active SOS Status Pill */}
+                <View style={styles.activeBadge}>
+                  <View style={styles.activeDot} />
+                  <Text style={styles.activeBadgeText}>SOS BROADCAST ACTIVE</Text>
+                </View>
+
                 <Text style={styles.activeTitle}>Distress Alert Sent</Text>
                 <Text style={styles.activeSub}>
-                  Your emergency contacts have been pinged with your exact location and Medical ID.
+                  Your trusted guardians have been pinged with your exact location and Medical ID.
                 </Text>
 
                 {/* Primary Guardian Target Confirmation */}
@@ -259,11 +268,13 @@ export default function SosModal({
                   )}
                 </View>
 
-                {/* Quick Action Buttons */}
-                <View style={styles.actionsColumn}>
-                  {/* FEATURE: TALK WITH MIA ASSISTANT (AI Safety Guidance) */}
+                {/* --- TOP 2 ESSENTIAL ASSISTANCE CARDS (NEW) --- */}
+                <View style={styles.rescueCardsSection}>
+                  <Text style={styles.sectionHeading}>IMMEDIATE HELP & GUIDANCE</Text>
+
+                  {/* 1. TALK WITH MIA ASSISTANT */}
                   <TouchableOpacity
-                    style={styles.miaBtn}
+                    style={styles.miaCard}
                     onPress={() => {
                       if (onTalkWithMia) {
                         onTalkWithMia();
@@ -277,29 +288,59 @@ export default function SosModal({
                       <Text style={styles.miaIcon}>💬</Text>
                     </View>
                     <View style={styles.miaTextCol}>
-                      <View style={styles.miaHeaderRow}>
+                      <View style={styles.miaTitleRow}>
                         <Text style={styles.miaTitle}>Talk with MIA (AI Assistant)</Text>
                         <View style={styles.miaBadge}>
                           <Text style={styles.miaBadgeText}>AI GUIDE</Text>
                         </View>
                       </View>
                       <Text style={styles.miaSub}>
-                        Ask what to do • First aid • Stay calm • EN/MR/HI
+                        Ask what to do • First aid • Stay calm • EN / MR / HI
                       </Text>
                     </View>
                     <Text style={styles.miaArrow}>➔</Text>
                   </TouchableOpacity>
 
+                  {/* 2. VIEW SAFE ZONES & SHELTERS */}
+                  <TouchableOpacity
+                    style={styles.safeZoneCard}
+                    onPress={() => {
+                      if (onNavigateToSafeZones) {
+                        onNavigateToSafeZones();
+                      } else {
+                        handleCancel();
+                      }
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.safeZoneIconBg}>
+                      <Text style={styles.safeZoneIcon}>🏥</Text>
+                    </View>
+                    <View style={styles.safeZoneTextCol}>
+                      <View style={styles.safeZoneTitleRow}>
+                        <Text style={styles.safeZoneTitle}>View Safe Zones & Shelters</Text>
+                        <View style={styles.safeZoneBadge}>
+                          <Text style={styles.safeZoneBadgeText}>GOOGLE MAP</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.safeZoneSub}>
+                        Hospitals, Police Stations & Safe Shelters near you
+                      </Text>
+                    </View>
+                    <Text style={styles.safeZoneArrow}>➔</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* --- DISPATCH & CALL ACTIONS --- */}
+                <Text style={styles.sectionHeading}>LIVE GPS SHARING & HOTLINES</Text>
+                <View style={styles.actionsColumn}>
                   <TouchableOpacity
                     style={styles.resendSmsBtn}
                     onPress={handleResendSms}
                     activeOpacity={0.8}
                   >
-                    <Text style={styles.resendSmsIcon}>💬</Text>
-                    <View>
-                      <Text style={styles.resendSmsTitle}>Open / Send Live GPS via SMS</Text>
-                      <Text style={styles.resendSmsSub}>Distress SMS text with Google Maps link</Text>
-                    </View>
+                    <Text style={styles.btnLeadingIcon}>💬</Text>
+                    <Text style={styles.resendSmsText}>Open / Send Live GPS via SMS</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
@@ -307,8 +348,8 @@ export default function SosModal({
                     onPress={handleWhatsAppPrimary}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.whatsappIcon}>📱</Text>
-                    <View>
+                    <Text style={styles.btnLeadingIcon}>📱</Text>
+                    <View style={styles.btnTextCol}>
                       <Text style={styles.whatsappTitle}>Send Live GPS on WhatsApp</Text>
                       <Text style={styles.whatsappSub}>Instant map link to parents</Text>
                     </View>
@@ -320,8 +361,8 @@ export default function SosModal({
                       onPress={handleCallPrimary}
                       activeOpacity={0.85}
                     >
-                      <Text style={styles.callIcon}>📞</Text>
-                      <View>
+                      <Text style={styles.btnLeadingIcon}>📞</Text>
+                      <View style={styles.btnTextCol}>
                         <Text style={styles.callGuardianTitle}>
                           Call {contacts.find((c) => c.isPrimary)?.name || contacts[0]?.name}
                         </Text>
@@ -335,39 +376,39 @@ export default function SosModal({
                     onPress={handleCall911}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.callIcon}>🚨</Text>
-                    <View>
+                    <Text style={styles.btnLeadingIcon}>🚨</Text>
+                    <View style={styles.btnTextCol}>
                       <Text style={styles.callTitle}>Call 112 (Emergency Police Dispatch)</Text>
                       <Text style={styles.callSub}>Police • Fire • Medical</Text>
                     </View>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.callPoliceBtn, { backgroundColor: '#BE123C' }]}
+                    style={[styles.callPoliceBtn, { backgroundColor: '#C2410C' }]}
                     onPress={() => SosService.dialEmergencyServices('1091')}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.callIcon}>👮‍♀️</Text>
-                    <View>
+                    <Text style={styles.btnLeadingIcon}>👮</Text>
+                    <View style={styles.btnTextCol}>
                       <Text style={styles.callTitle}>Call 1091 (Women Safety Helpline)</Text>
                       <Text style={styles.callSub}>24x7 Police Rescue for Women</Text>
                     </View>
                   </TouchableOpacity>
                 </View>
 
-                {/* Mark Safe / Bottom Cancel Bar */}
+                {/* Dismiss Button */}
                 <TouchableOpacity
                   style={styles.dismissBtn}
                   onPress={handleCancel}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.dismissBtnText}>✕ Cancel Alert • I Am Safe Now</Text>
+                  <Text style={styles.dismissBtnText}>I am Safe Now • Dismiss SOS</Text>
                 </TouchableOpacity>
               </View>
             )}
           </ScrollView>
-        </View>
-      </View>
+        </TouchableOpacity>
+      </TouchableOpacity>
     </Modal>
   );
 }
@@ -381,8 +422,8 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   cardContainer: {
-    width: Math.min(width - 32, 440),
-    maxHeight: Math.min(height * 0.88, 700),
+    width: Math.min(width - 32, 430),
+    maxHeight: Math.min(height * 0.90, 720),
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     shadowColor: '#E63946',
@@ -391,57 +432,55 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 12,
     overflow: 'hidden',
+    position: 'relative',
   },
-  popupTopBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  // Top-Right Corner Close Button
+  cornerCloseBtn: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F1F5F9',
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#F8FAFC',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E2E8F0',
-  },
-  popupTopStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EF4444',
-    marginRight: 6,
-  },
-  popupTopStatusText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#0F172A',
-    letterSpacing: 0.5,
-  },
-  popupCancelBtn: {
-    backgroundColor: '#FEE2E2',
+    zIndex: 99,
     borderWidth: 1,
-    borderColor: '#FECACA',
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 8,
+    borderColor: '#E2E8F0',
   },
-  popupCancelBtnText: {
-    color: '#DC2626',
-    fontSize: 12,
+  cornerCloseText: {
+    fontSize: 16,
     fontWeight: '800',
+    color: '#475569',
+    lineHeight: 18,
   },
   modalScroll: {
     flexGrow: 0,
   },
   scrollContent: {
-    padding: 18,
+    padding: 20,
+    paddingTop: 18,
     paddingBottom: 24,
   },
   countdownContainer: {
     alignItems: 'center',
     paddingTop: 8,
+  },
+  urgencyPill: {
+    backgroundColor: '#FEF2F2',
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    marginBottom: 10,
+  },
+  urgencyText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#DC2626',
+    letterSpacing: 0.5,
   },
   warningTitle: {
     fontSize: 20,
@@ -455,27 +494,27 @@ const styles = StyleSheet.create({
     color: '#64748B',
     textAlign: 'center',
     lineHeight: 17,
-    marginBottom: 20,
+    marginBottom: 18,
     paddingHorizontal: 8,
   },
   countdownRingWrapper: {
-    width: 130,
-    height: 130,
+    width: 124,
+    height: 124,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 22,
+    marginBottom: 20,
   },
   beaconRing: {
     position: 'absolute',
-    width: 130,
-    height: 130,
-    borderRadius: 65,
+    width: 124,
+    height: 124,
+    borderRadius: 62,
     backgroundColor: 'rgba(230, 57, 70, 0.2)',
   },
   countdownCircle: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: '#E63946',
     justifyContent: 'center',
     alignItems: 'center',
@@ -486,10 +525,10 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   countdownNumber: {
-    fontSize: 44,
+    fontSize: 42,
     fontWeight: '900',
     color: '#FFFFFF',
-    lineHeight: 48,
+    lineHeight: 46,
   },
   countdownUnit: {
     fontSize: 10,
@@ -500,7 +539,7 @@ const styles = StyleSheet.create({
   cancelButton: {
     width: '100%',
     backgroundColor: '#10B981',
-    paddingVertical: 14,
+    paddingVertical: 13,
     borderRadius: 14,
     alignItems: 'center',
     marginBottom: 10,
@@ -522,8 +561,31 @@ const styles = StyleSheet.create({
   activeContainer: {
     alignItems: 'center',
   },
+  activeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    marginBottom: 8,
+    marginTop: 2,
+  },
+  activeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+    marginRight: 6,
+  },
+  activeBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#B91C1C',
+    letterSpacing: 0.5,
+  },
   activeTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '900',
     color: '#1E293B',
     marginBottom: 4,
@@ -534,15 +596,43 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 14,
     lineHeight: 16,
+    paddingHorizontal: 8,
+  },
+  guardianNotifiedBox: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    width: '100%',
+  },
+  guardianNotifiedLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#1D4ED8',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  guardianNotifiedName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  guardianNotifiedPhone: {
+    fontSize: 12,
+    color: '#2563EB',
+    fontWeight: '700',
+    marginTop: 1,
   },
   coordsBox: {
     width: '100%',
     backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 10,
+    borderRadius: 14,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   coordsLabel: {
     fontSize: 9,
@@ -552,23 +642,35 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   coordsValue: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#0F172A',
   },
   medicalNotice: {
-    fontSize: 10,
+    fontSize: 11,
     color: '#64748B',
     marginTop: 3,
     fontWeight: '500',
   },
-  actionsColumn: {
+
+  // Section Headings
+  sectionHeading: {
     width: '100%',
-    gap: 8,
-    marginBottom: 14,
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+    marginTop: 4,
   },
-  // MIA Assistant Button Styling
-  miaBtn: {
+
+  // Top 2 Immediate Rescue Cards
+  rescueCardsSection: {
+    width: '100%',
+    marginBottom: 12,
+    gap: 8,
+  },
+  miaCard: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FAF5FF',
@@ -578,8 +680,8 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   miaIconBg: {
-    width: 36,
-    height: 36,
+    width: 38,
+    height: 38,
     borderRadius: 10,
     backgroundColor: '#7C3AED',
     justifyContent: 'center',
@@ -593,7 +695,7 @@ const styles = StyleSheet.create({
   miaTextCol: {
     flex: 1,
   },
-  miaHeaderRow: {
+  miaTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -628,29 +730,94 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
 
+  safeZoneCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1.5,
+    borderColor: '#7DD3FC',
+    borderRadius: 14,
+    padding: 12,
+  },
+  safeZoneIconBg: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#0284C7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  safeZoneIcon: {
+    fontSize: 18,
+    color: '#FFFFFF',
+  },
+  safeZoneTextCol: {
+    flex: 1,
+  },
+  safeZoneTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  safeZoneTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#075985',
+  },
+  safeZoneBadge: {
+    backgroundColor: '#0284C7',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  safeZoneBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  safeZoneSub: {
+    fontSize: 10,
+    color: '#0369A1',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  safeZoneArrow: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0284C7',
+    marginLeft: 6,
+  },
+
+  // Actions Column
+  actionsColumn: {
+    width: '100%',
+    gap: 8,
+    marginBottom: 14,
+  },
+  btnLeadingIcon: {
+    fontSize: 18,
+    marginRight: 4,
+  },
+  btnTextCol: {
+    flex: 1,
+  },
   resendSmsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    padding: 12,
+    justifyContent: 'center',
+    backgroundColor: '#F0F9FF',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
-    gap: 10,
+    borderColor: '#BAE6FD',
   },
-  resendSmsIcon: {
-    fontSize: 20,
-  },
-  resendSmsTitle: {
-    color: '#1E40AF',
+  resendSmsText: {
+    color: '#0284C7',
     fontSize: 13,
-    fontWeight: '800',
-  },
-  resendSmsSub: {
-    color: '#3B82F6',
-    fontSize: 10,
-    fontWeight: '500',
-    marginTop: 1,
+    fontWeight: '700',
   },
   whatsappBtn: {
     flexDirection: 'row',
@@ -658,10 +825,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#16A34A',
     padding: 12,
     borderRadius: 14,
-    gap: 10,
-  },
-  whatsappIcon: {
-    fontSize: 20,
+    gap: 8,
   },
   whatsappTitle: {
     color: '#FFFFFF',
@@ -677,10 +841,10 @@ const styles = StyleSheet.create({
   callGuardianBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
+    backgroundColor: '#1E293B',
     padding: 12,
     borderRadius: 14,
-    gap: 10,
+    gap: 8,
   },
   callGuardianTitle: {
     color: '#FFFFFF',
@@ -699,10 +863,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#DC2626',
     padding: 12,
     borderRadius: 14,
-    gap: 10,
-  },
-  callIcon: {
-    fontSize: 20,
+    gap: 8,
   },
   callTitle: {
     color: '#FFFFFF',
@@ -728,32 +889,5 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 12,
     fontWeight: '700',
-  },
-  guardianNotifiedBox: {
-    backgroundColor: '#EFF6FF',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
-    width: '100%',
-  },
-  guardianNotifiedLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#1D4ED8',
-    letterSpacing: 0.5,
-    marginBottom: 2,
-  },
-  guardianNotifiedName: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#0F172A',
-  },
-  guardianNotifiedPhone: {
-    fontSize: 11,
-    color: '#2563EB',
-    fontWeight: '700',
-    marginTop: 1,
   },
 });

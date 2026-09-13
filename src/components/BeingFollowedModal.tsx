@@ -18,6 +18,7 @@ interface BeingFollowedModalProps {
   onClose: () => void;
   userCoords: LocationCoords | null;
   onTalkWithMia?: () => void;
+  onNavigateToSafeZones?: () => void;
 }
 
 const THEME = {
@@ -39,6 +40,7 @@ export default function BeingFollowedModal({
   onClose,
   userCoords,
   onTalkWithMia,
+  onNavigateToSafeZones,
 }: BeingFollowedModalProps) {
   const [coords, setCoords] = useState<LocationCoords | null>(userCoords);
   const [primaryGuardian, setPrimaryGuardian] = useState<EmergencyContact | null>(null);
@@ -193,6 +195,35 @@ export default function BeingFollowedModal({
               </Text>
             </View>
             <Text style={styles.miaArrow}>➔</Text>
+          </TouchableOpacity>
+
+          {/* VIEW SAFE ZONES & SHELTERS */}
+          <TouchableOpacity
+            style={styles.safeZonesCard}
+            onPress={() => {
+              if (onNavigateToSafeZones) {
+                onNavigateToSafeZones();
+              } else {
+                onClose();
+              }
+            }}
+            activeOpacity={0.85}
+          >
+            <View style={styles.safeZonesIconCircle}>
+              <Text style={styles.safeZonesIcon}>🏥</Text>
+            </View>
+            <View style={styles.miaTextCol}>
+              <View style={styles.miaTitleRow}>
+                <Text style={styles.safeZonesTitle}>Find Nearby Safe Zones & Shelters</Text>
+                <View style={styles.safeZonesBadge}>
+                  <Text style={styles.safeZonesBadgeText}>MAP</Text>
+                </View>
+              </View>
+              <Text style={styles.safeZonesSub}>
+                Directions to hospitals, police stations & shelters on Google Maps
+              </Text>
+            </View>
+            <Text style={styles.safeZonesArrow}>➔</Text>
           </TouchableOpacity>
 
           {/* PRIMARY OPTION 1: 🤫 SILENT SOS (HIDING / CANNOT MAKE NOISE) */}
@@ -663,6 +694,58 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#C084FC',
+    marginLeft: 6,
+  },
+  safeZonesCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0C4A6E',
+    borderWidth: 1.5,
+    borderColor: '#38BDF8',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 16,
+  },
+  safeZonesIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: '#0284C7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  safeZonesIcon: {
+    fontSize: 20,
+    color: '#FFFFFF',
+  },
+  safeZonesTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#F0F9FF',
+  },
+  safeZonesBadge: {
+    backgroundColor: '#0284C7',
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  safeZonesBadgeText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+  safeZonesSub: {
+    fontSize: 10,
+    color: '#BAE6FD',
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  safeZonesArrow: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#38BDF8',
     marginLeft: 6,
   },
 });
