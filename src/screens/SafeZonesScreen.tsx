@@ -33,13 +33,16 @@ const THEME = {
   border: '#E2E8F0',
   shelterPurple: '#7C3AED',
   shelterPurpleBg: '#F3E8FF',
+  clinicTeal: '#0D9488',
+  clinicTealBg: '#CCFBF1',
 };
 
 const CATEGORIES: { id: SafeZoneCategory | 'all'; label: string; icon: string }[] = [
   { id: 'all', label: 'All', icon: '🌐' },
-  { id: 'shelter', label: 'Shelters', icon: '🏠' },
   { id: 'hospital', label: 'Hospitals', icon: '🏥' },
+  { id: 'clinic', label: 'Clinics', icon: '🩺' },
   { id: 'police', label: 'Police', icon: '👮' },
+  { id: 'shelter', label: 'Shelters', icon: '🏠' },
   { id: 'fire_station', label: 'Fire Dept', icon: '🚒' },
 ];
 
@@ -201,6 +204,8 @@ export default function SafeZonesScreen() {
     switch (category) {
       case 'hospital':
         return { bg: THEME.blueBg, text: THEME.blue, icon: '🏥' };
+      case 'clinic':
+        return { bg: THEME.clinicTealBg, text: THEME.clinicTeal, icon: '🩺' };
       case 'police':
         return { bg: THEME.amberBg, text: THEME.amber, icon: '👮' };
       case 'shelter':
@@ -219,6 +224,8 @@ export default function SafeZonesScreen() {
     switch (category) {
       case 'hospital':
         return { pinColor: '#1A73E8', icon: '🏥', label: 'Hospital' };
+      case 'clinic':
+        return { pinColor: '#0D9488', icon: '🩺', label: 'Clinic' };
       case 'police':
         return { pinColor: '#EA4335', icon: '👮', label: 'Police' };
       case 'shelter':
@@ -331,7 +338,7 @@ export default function SafeZonesScreen() {
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
-            placeholder="Search hospitals, police, shelters..."
+            placeholder="Search hospitals, clinics, police, shelters..."
             placeholderTextColor={THEME.textLight}
             value={searchQuery}
             onChangeText={setSearchQuery}

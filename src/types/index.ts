@@ -27,7 +27,7 @@ export interface LocationCoords {
   address?: string;
 }
 
-export type SafeZoneCategory = 'hospital' | 'police' | 'shelter' | 'fire_station';
+export type SafeZoneCategory = 'hospital' | 'clinic' | 'police' | 'shelter' | 'fire_station';
 
 export interface SafeZone {
   id: string;
