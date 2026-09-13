@@ -260,8 +260,11 @@ export default function SafeZonesScreen() {
       <ScrollView
         style={styles.mainScrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
+        bounces={true}
+        overScrollMode="always"
       >
         {/* GPS Warning Banner if disabled */}
         {locationDisabled && (

@@ -217,8 +217,13 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       <StatusBar barStyle="dark-content" backgroundColor={THEME.background} />
 
       <ScrollView
+        style={styles.mainScrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+        keyboardShouldPersistTaps="handled"
+        bounces={true}
+        overScrollMode="always"
       >
         {/* Top Header: Greeting + Status */}
         <View style={styles.header}>
@@ -529,6 +534,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           {/* News Filter Chips */}
           <ScrollView
             horizontal
+            nestedScrollEnabled={true}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filterChipsRow}
           >
@@ -737,10 +743,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: THEME.background,
   },
+  mainScrollView: {
+    flex: 1,
+  },
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 40,
+    paddingBottom: 70,
+    flexGrow: 1,
   },
   // Top Header
   header: {

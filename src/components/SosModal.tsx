@@ -158,16 +158,16 @@ export default function SosModal({
       transparent
       onRequestClose={handleCancel}
     >
-      <TouchableOpacity
-        style={styles.backdrop}
-        activeOpacity={1}
-        onPress={handleCancel}
-      >
+      <View style={styles.backdrop}>
+        {/* Backdrop touch area for tap outside to close */}
         <TouchableOpacity
+          style={StyleSheet.absoluteFill}
           activeOpacity={1}
-          style={styles.cardContainer}
-          onPress={(e) => e.stopPropagation()}
-        >
+          onPress={handleCancel}
+        />
+
+        {/* Modal Card Container - pure View for uninterrupted native scrolling */}
+        <View style={styles.cardContainer}>
           {/* Top-Right Corner Close Button (Always visible) */}
           <TouchableOpacity
             style={styles.cornerCloseBtn}
@@ -181,7 +181,11 @@ export default function SosModal({
           <ScrollView
             style={styles.modalScroll}
             contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator={true}
+            bounces={true}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            overScrollMode="always"
           >
             {!isTriggered ? (
               /* --- Phase 1: 5-Second Countdown State --- */
@@ -407,8 +411,8 @@ export default function SosModal({
               </View>
             )}
           </ScrollView>
-        </TouchableOpacity>
-      </TouchableOpacity>
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -423,7 +427,7 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     width: Math.min(width - 32, 430),
-    maxHeight: Math.min(height * 0.90, 720),
+    maxHeight: Math.min(height * 0.85, 680),
     backgroundColor: '#FFFFFF',
     borderRadius: 24,
     shadowColor: '#E63946',
@@ -456,12 +460,14 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   modalScroll: {
-    flexGrow: 0,
+    width: '100%',
+    flexShrink: 1,
   },
   scrollContent: {
     padding: 20,
-    paddingTop: 18,
-    paddingBottom: 24,
+    paddingTop: 24,
+    paddingBottom: 36,
+    flexGrow: 1,
   },
   countdownContainer: {
     alignItems: 'center',
