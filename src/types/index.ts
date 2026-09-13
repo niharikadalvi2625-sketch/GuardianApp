@@ -80,3 +80,34 @@ export interface TriageGuide {
   summary: string;
   steps: string[];
 }
+
+export interface DisasterThreatFactor {
+  id: string;
+  name: string;
+  icon: string;
+  probabilityPercent: number;
+  level: 'low' | 'moderate' | 'high' | 'severe';
+  statusDescription: string;
+}
+
+export interface DisasterThreatAssessment {
+  overallScorePercent: number;
+  overallThreatLevel: 'low' | 'moderate' | 'high' | 'severe';
+  headline: string;
+  summary: string;
+  lastUpdated: string;
+  factors: DisasterThreatFactor[];
+}
+
+export interface SafetyNewsItem {
+  id: string;
+  title: string;
+  summary: string;
+  category: 'disaster' | 'women_safety' | 'weather' | 'civic';
+  categoryLabel: string;
+  categoryColor: string;
+  categoryIcon: string;
+  timeAgo: string;
+  source: string;
+  isUrgent?: boolean;
+}

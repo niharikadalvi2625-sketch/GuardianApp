@@ -18,32 +18,44 @@ import { HomeScreenNavigationProp } from '../types/navigation';
 import { LocationService } from '../services/locationService';
 import { SosService } from '../services/sosService';
 import { AlertService } from '../services/alertService';
-import { LocationCoords, UserProfile, EmergencyContact } from '../types';
+import { DisasterService } from '../services/disasterService';
+import {
+  LocationCoords,
+  UserProfile,
+  EmergencyContact,
+  DisasterThreatAssessment,
+  SafetyNewsItem,
+} from '../types';
 import SosModal from '../components/SosModal';
 import BeingFollowedModal from '../components/BeingFollowedModal';
 import FakeCallModal from '../components/FakeCallModal';
 import JourneySentinelModal from '../components/JourneySentinelModal';
 
 const { width } = Dimensions.get('window');
-const SOS_BUTTON_SIZE = width * 0.42;
+const SOS_BUTTON_SIZE = width * 0.32;
 
 const THEME = {
   primary: '#E63946',
   primaryDark: '#B71C1C',
-  primaryGlow: 'rgba(230, 57, 70, 0.25)',
+  primaryGlow: 'rgba(230, 57, 70, 0.22)',
   secondary: '#1D3557',
-  background: '#F8F9FA',
+  background: '#F8FAFC',
   cardBg: '#FFFFFF',
-  textPrimary: '#1E293B',
+  textPrimary: '#0F172A',
   textSecondary: '#64748B',
   textLight: '#94A3B8',
-  safeGreen: '#2A9D8F',
-  safeGreenBg: '#E8F5E9',
-  blue: '#3B82F6',
-  amber: '#F59E0B',
+  safeGreen: '#16A34A',
+  safeGreenBg: '#F0FDF4',
+  safeGreenBorder: '#BBF7D0',
+  blue: '#2563EB',
+  blueBg: '#EFF6FF',
+  amber: '#D97706',
+  amberBg: '#FFFBEB',
   border: '#E2E8F0',
-  indigo: '#4F46E5',
-  indigoBg: '#EEF2FF',
+  rose: '#E11D48',
+  roseBg: '#FFF1F2',
+  purple: '#7C3AED',
+  purpleBg: '#F5F3FF',
 };
 
 interface HomeScreenProps {
@@ -65,16 +77,20 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [parentName, setParentName] = useState<string>('');
   const [parentPhone, setParentPhone] = useState<string>('');
 
+  // Disaster & News State
+  const [assessment, setAssessment] = useState<DisasterThreatAssessment | null>(null);
+  const [newsList, setNewsList] = useState<SafetyNewsItem[]>([]);
+  const [newsFilter, setNewsFilter] = useState<'all' | 'disaster' | 'women_safety' | 'weather'>('all');
+
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     loadData();
 
-    // Pulse animation for high-visibility SOS alert ring
     const pulse = Animated.loop(
       Animated.sequence([
         Animated.timing(pulseAnim, {
-          toValue: 1.15,
+          toValue: 1.12,
           duration: 1200,
           useNativeDriver: true,
         }),
@@ -88,6 +104,13 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     pulse.start();
     return () => pulse.stop();
   }, []);
+
+  useEffect(() => {
+    const threat = DisasterService.getDisasterAssessment(coords);
+    const news = DisasterService.getSafetyNews(coords);
+    setAssessment(threat);
+    setNewsList(news);
+  }, [coords]);
 
   const loadData = async () => {
     refreshLocation();
@@ -115,7 +138,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       const loc = await LocationService.getCurrentLocation();
       setCoords(loc);
     } catch {
-      // Handled via defaults
+      // Defaults handled in service
     } finally {
       setLoadingLocation(false);
     }
@@ -184,6 +207,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     setSosModalVisible(true);
   };
 
+  const filteredNews = newsList.filter((item) => {
+    if (newsFilter === 'all') return true;
+    return item.category === newsFilter;
+  });
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <StatusBar barStyle="dark-content" backgroundColor={THEME.background} />
@@ -192,309 +220,425 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Top Header */}
+        {/* Top Header: Greeting + Status */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greetingSub}>Stay Safe,</Text>
-            <Text style={styles.greetingTitle}>
+          <View style={styles.headerTextCol}>
+            <Text style={styles.headerGreeting}>Stay Protected,</Text>
+            <Text style={styles.headerUserName}>
               {profile ? profile.name : 'Guardian User'}
             </Text>
           </View>
-          <View style={styles.statusPill}>
-            <View style={styles.statusDot} />
-            <Text style={styles.statusText}>Active Shield</Text>
+          <View style={styles.shieldPill}>
+            <View style={styles.shieldPulseDot} />
+            <Text style={styles.shieldPillText}>SHIELD ON</Text>
           </View>
         </View>
 
-        {/* Live Location / Safety Status Card */}
-        <View style={styles.locationCard}>
-          <Text style={styles.locationIcon}>📍</Text>
-          <View style={styles.locationDetails}>
-            <Text style={styles.locationTitle}>
-              {coords ? LocationService.formatLocationName(coords) : 'Current Safe Location'}
-            </Text>
-            <Text style={styles.locationSubtitle}>
-              {coords
-                ? LocationService.formatCoordinates(coords)
-                : 'Acquiring GPS location...'}
+        {/* Compact Location Strip */}
+        <View style={styles.locationStrip}>
+          <Text style={styles.locationPinIcon}>📍</Text>
+          <View style={styles.locationTextCol}>
+            <Text style={styles.locationLabel}>CURRENT LOCATION</Text>
+            <Text style={styles.locationValue} numberOfLines={1}>
+              {coords ? LocationService.formatLocationName(coords) : 'Detecting GPS position...'}
             </Text>
           </View>
           <TouchableOpacity
-            style={styles.locationBadge}
+            style={styles.refreshBtn}
             onPress={refreshLocation}
             activeOpacity={0.7}
           >
             {loadingLocation ? (
-              <ActivityIndicator size="small" color="#0284C7" />
+              <ActivityIndicator size="small" color="#2563EB" />
             ) : (
-              <Text style={styles.locationBadgeText}>🔄 Refresh</Text>
+              <Text style={styles.refreshBtnText}>🔄</Text>
             )}
           </TouchableOpacity>
         </View>
 
-        {/* Primary Guardian Contact Card */}
-        {primaryContact && (
+        {/* 1. HERO SOS CENTER CARD */}
+        <View style={styles.sosCard}>
+          {/* Linked Parent Bar */}
           <TouchableOpacity
             style={[
-              styles.guardianBar,
-              isDefaultPhone && { borderColor: '#F59E0B', backgroundColor: '#FFFBEB' },
+              styles.guardianLinkBar,
+              isDefaultPhone && styles.guardianLinkBarUnset,
             ]}
             onPress={handleOpenParentModal}
             activeOpacity={0.85}
           >
-            <View
+            <Text style={styles.guardianLinkIcon}>{isDefaultPhone ? '⚠️' : '🛡️'}</Text>
+            <View style={styles.guardianLinkTextCol}>
+              <Text style={styles.guardianLinkTag}>
+                {isDefaultPhone ? 'DIRECT SOS RECIPIENT NOT SET' : 'DIRECT SOS LINKED TO'}
+              </Text>
+              <Text style={styles.guardianLinkName} numberOfLines={1}>
+                {isDefaultPhone
+                  ? 'Tap to link Parents / Spouse phone'
+                  : `${primaryContact?.name} • ${primaryContact?.phone}`}
+              </Text>
+            </View>
+            <View style={styles.guardianEditPill}>
+              <Text style={styles.guardianEditText}>{isDefaultPhone ? 'SET' : 'EDIT'}</Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Glowing SOS Button */}
+          <View style={styles.sosButtonContainer}>
+            <Animated.View
               style={[
-                styles.guardianAvatar,
-                isDefaultPhone && { backgroundColor: '#FEF3C7' },
+                styles.sosOuterGlow,
+                {
+                  transform: [{ scale: pulseAnim }],
+                },
               ]}
-            >
-              <Text style={styles.guardianAvatarIcon}>{isDefaultPhone ? '⚠️' : '🛡️'}</Text>
-            </View>
-            <View style={styles.guardianInfo}>
-              <View style={styles.guardianHeaderRow}>
-                <Text
-                  style={[
-                    styles.guardianBadge,
-                    isDefaultPhone && { color: '#D97706' },
-                  ]}
-                >
-                  {isDefaultPhone ? 'SET PARENTS NUMBER' : 'PRIMARY GUARDIAN'}
-                </Text>
-                {isDefaultPhone && (
-                  <View style={styles.setupPill}>
-                    <Text style={styles.setupPillText}>TAP TO CONFIGURE</Text>
-                  </View>
-                )}
-              </View>
-              <Text style={styles.guardianName} numberOfLines={1}>
-                {primaryContact.name}
-              </Text>
-              <Text style={styles.guardianPhone}>
-                {isDefaultPhone ? 'Tap to enter your parents / spouse mobile number' : primaryContact.phone}
-              </Text>
-            </View>
-            <View style={styles.guardianActionsRow}>
-              <TouchableOpacity
-                style={styles.guardianEditBtn}
-                onPress={handleOpenParentModal}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.guardianEditIcon}>✏️</Text>
-              </TouchableOpacity>
-              {!isDefaultPhone && (
-                <TouchableOpacity
-                  style={styles.guardianCallBtn}
-                  onPress={() => handleCall(primaryContact.phone)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.guardianCallIcon}>📞</Text>
-                  <Text style={styles.guardianCallText}>Call</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          </TouchableOpacity>
-        )}
-
-        {/* --- WOMEN'S SAFETY SHIELD SECTION --- */}
-        <View style={styles.womenSafetySection}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Women's Safety Shield</Text>
-            <Text style={styles.shieldBadge}>NIGHT TRAVEL & DEFENSE</Text>
-          </View>
-
-          {/* Large High-Priority "Being Followed / Unsafe" Trigger */}
-          <TouchableOpacity
-            style={styles.beingFollowedBanner}
-            onPress={() => setBeingFollowedVisible(true)}
-            activeOpacity={0.88}
-          >
-            <View style={styles.bannerIconContainer}>
-              <Text style={styles.bannerIcon}>🚨</Text>
-            </View>
-            <View style={styles.bannerTextCol}>
-              <Text style={styles.bannerTitle}>I Feel Unsafe / Being Followed</Text>
-              <Text style={styles.bannerDesc}>
-                1-tap stealth GPS alert to parents/spouse, silent SOS, or speed-dial
-              </Text>
-            </View>
-            <Text style={styles.bannerArrow}>➔</Text>
-          </TouchableOpacity>
-
-          {/* Quick Protective Actions Grid */}
-          <View style={styles.protectiveGrid}>
+            />
             <TouchableOpacity
-              style={[styles.protectiveCard, { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' }]}
-              onPress={() => setBeingFollowedVisible(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.protectiveIcon}>🤫</Text>
-              <Text style={[styles.protectiveTitle, { color: '#4338CA' }]}>Silent SOS</Text>
-              <Text style={styles.protectiveSub}>For hiding / danger</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.protectiveCard, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}
-              onPress={() => setJourneySentinelVisible(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.protectiveIcon}>⏱️</Text>
-              <Text style={[styles.protectiveTitle, { color: '#15803D' }]}>Safe Arrival</Text>
-              <Text style={styles.protectiveSub}>Night travel timer</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.protectiveCard, { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }]}
-              onPress={() => setFakeCallVisible(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.protectiveIcon}>📞</Text>
-              <Text style={[styles.protectiveTitle, { color: '#C2410C' }]}>Fake Call</Text>
-              <Text style={styles.protectiveSub}>Discreet cab exit</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* High-Visibility Emergency SOS Trigger */}
-        <View style={styles.sosSection}>
-          <Animated.View
-            style={[
-              styles.sosOuterRing,
-              {
-                transform: [{ scale: pulseAnim }],
-              },
-            ]}
-          />
-          <View style={styles.sosMiddleRing}>
-            <TouchableOpacity
-              activeOpacity={0.85}
+              activeOpacity={0.88}
               style={styles.sosButton}
               onPress={handleDirectSosPress}
               accessibilityLabel="Emergency SOS Button"
-              accessibilityHint="Tap to initiate emergency distress broadcast"
+              accessibilityHint="Tap to instantly send live GPS to parents and emergency contacts"
               accessibilityRole="button"
             >
               <Text style={styles.sosText}>SOS</Text>
-              <Text style={styles.sosSubtext}>TAP FOR EMERGENCY</Text>
+              <Text style={styles.sosSubtext}>TAP FOR HELP</Text>
             </TouchableOpacity>
           </View>
+
+          <Text style={styles.sosInstruction}>
+            {isDefaultPhone
+              ? 'Tap "SET" above so your live location immediately goes to parents'
+              : `1-Tap sends live GPS distress SMS to ${primaryContact?.name}`}
+          </Text>
         </View>
 
-        <Text style={styles.sosHelperText}>
-          {isDefaultPhone
-            ? '⚠️ Tap the Primary Guardian card above to set your parents phone number'
-            : `1-Tap Live SOS: sends real-time GPS pin to ${primaryContact.name} (${primaryContact.phone})`}
-        </Text>
-
-        {/* Emergency Quick Hotlines Row */}
+        {/* 2. 1-TAP EMERGENCY HOTLINES */}
         <View style={styles.hotlinesSection}>
-          <Text style={styles.sectionTitle}>1-Tap Emergency Hotlines</Text>
           <View style={styles.hotlinesRow}>
             <TouchableOpacity
-              style={[styles.hotlineBtn, { backgroundColor: '#FEE2E2' }]}
+              style={[styles.hotlinePill, { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}
               onPress={() => handleCall('112')}
               activeOpacity={0.8}
             >
               <Text style={styles.hotlineIcon}>👮</Text>
-              <Text style={[styles.hotlineLabel, { color: '#B91C1C' }]}>Police</Text>
-              <Text style={styles.hotlineNum}>112</Text>
+              <View>
+                <Text style={[styles.hotlineLabel, { color: '#B91C1C' }]}>Police</Text>
+                <Text style={styles.hotlineNum}>112</Text>
+              </View>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.hotlineBtn, { backgroundColor: '#FFF1F2' }]}
+              style={[styles.hotlinePill, { backgroundColor: '#FFE4E6', borderColor: '#FECDD3' }]}
               onPress={() => handleCall('1091')}
               activeOpacity={0.8}
             >
               <Text style={styles.hotlineIcon}>👩</Text>
-              <Text style={[styles.hotlineLabel, { color: '#BE123C' }]}>Women</Text>
-              <Text style={styles.hotlineNum}>1091</Text>
+              <View>
+                <Text style={[styles.hotlineLabel, { color: '#BE123C' }]}>Women</Text>
+                <Text style={styles.hotlineNum}>1091</Text>
+              </View>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.hotlineBtn, { backgroundColor: '#EFF6FF' }]}
+              style={[styles.hotlinePill, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}
               onPress={() => handleCall('108')}
               activeOpacity={0.8}
             >
               <Text style={styles.hotlineIcon}>🚑</Text>
-              <Text style={[styles.hotlineLabel, { color: '#1D4ED8' }]}>Ambulance</Text>
-              <Text style={styles.hotlineNum}>108</Text>
+              <View>
+                <Text style={[styles.hotlineLabel, { color: '#1D4ED8' }]}>Medical</Text>
+                <Text style={styles.hotlineNum}>108</Text>
+              </View>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.hotlineBtn, { backgroundColor: '#FEF3C7' }]}
+              style={[styles.hotlinePill, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}
               onPress={() => handleCall('181')}
               activeOpacity={0.8}
             >
               <Text style={styles.hotlineIcon}>🛡️</Text>
-              <Text style={[styles.hotlineLabel, { color: '#B45309' }]}>Helpline</Text>
-              <Text style={styles.hotlineNum}>181</Text>
+              <View>
+                <Text style={[styles.hotlineLabel, { color: '#B45309' }]}>Helpline</Text>
+                <Text style={styles.hotlineNum}>181</Text>
+              </View>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* Core Modules Grid */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Safety Services</Text>
+        {/* 3. DISASTER CHANCES & THREAT METER */}
+        {assessment && (
+          <View style={styles.disasterSection}>
+            <View style={styles.sectionHeaderRow}>
+              <View>
+                <Text style={styles.sectionTitle}>Disaster Risk & Chances</Text>
+                <Text style={styles.sectionSubTitle}>Live Regional Climate & Seismic Index</Text>
+              </View>
+              <View
+                style={[
+                  styles.threatBadge,
+                  assessment.overallThreatLevel === 'low'
+                    ? styles.threatBadgeLow
+                    : assessment.overallThreatLevel === 'moderate'
+                    ? styles.threatBadgeMed
+                    : styles.threatBadgeHigh,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.threatBadgeText,
+                    assessment.overallThreatLevel === 'low'
+                      ? styles.threatTextLow
+                      : assessment.overallThreatLevel === 'moderate'
+                      ? styles.threatTextMed
+                      : styles.threatTextHigh,
+                  ]}
+                >
+                  {assessment.overallScorePercent}% CHANCE • {assessment.overallThreatLevel.toUpperCase()}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.disasterCard}>
+              {/* Progress bar representing chance of disaster */}
+              <View style={styles.riskBarTrack}>
+                <View
+                  style={[
+                    styles.riskBarFill,
+                    {
+                      width: `${Math.max(8, assessment.overallScorePercent)}%`,
+                      backgroundColor:
+                        assessment.overallThreatLevel === 'low'
+                          ? '#16A34A'
+                          : assessment.overallThreatLevel === 'moderate'
+                          ? '#D97706'
+                          : '#DC2626',
+                    },
+                  ]}
+                />
+              </View>
+
+              <Text style={styles.disasterHeadline}>{assessment.headline}</Text>
+              <Text style={styles.disasterSummary}>{assessment.summary}</Text>
+
+              {/* 4 Factor Grid */}
+              <View style={styles.factorsGrid}>
+                {assessment.factors.map((factor) => (
+                  <View key={factor.id} style={styles.factorCard}>
+                    <View style={styles.factorTopRow}>
+                      <Text style={styles.factorIcon}>{factor.icon}</Text>
+                      <Text style={styles.factorPercent}>{factor.probabilityPercent}%</Text>
+                    </View>
+                    <Text style={styles.factorName} numberOfLines={1}>{factor.name}</Text>
+                    <Text style={styles.factorStatus} numberOfLines={1}>{factor.statusDescription}</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Quick shelter shortcut */}
+              <TouchableOpacity
+                style={styles.shelterShortcutBtn}
+                onPress={() => navigation.navigate('SafeZonesTab')}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.shelterShortcutIcon}>🏛️</Text>
+                <Text style={styles.shelterShortcutText}>View Verified Safe Shelters & Evacuation Centers</Text>
+                <Text style={styles.shelterShortcutArrow}>➔</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* 4. WOMEN'S SAFETY SHIELD */}
+        <View style={styles.womenShieldSection}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.sectionTitle}>Women's Safety Shield</Text>
+              <Text style={styles.sectionSubTitle}>Discreet Defense & Night Transit Tools</Text>
+            </View>
+            <View style={styles.stealthBadge}>
+              <Text style={styles.stealthBadgeText}>STEALTH DEFENSE</Text>
+            </View>
+          </View>
+
+          {/* Primary "Being Followed" Banner */}
+          <TouchableOpacity
+            style={styles.beingFollowedCard}
+            onPress={() => setBeingFollowedVisible(true)}
+            activeOpacity={0.88}
+          >
+            <View style={styles.followedIconCircle}>
+              <Text style={styles.followedIconText}>🚨</Text>
+            </View>
+            <View style={styles.followedTextCol}>
+              <Text style={styles.followedTitle}>I Feel Unsafe / Being Followed</Text>
+              <Text style={styles.followedDesc}>
+                1-tap stealth GPS alert to parents, silent trigger & speed dial
+              </Text>
+            </View>
+            <Text style={styles.followedArrow}>➔</Text>
+          </TouchableOpacity>
+
+          {/* 3 Quick Actions */}
+          <View style={styles.shieldActionsRow}>
+            <TouchableOpacity
+              style={[styles.shieldActionCard, { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' }]}
+              onPress={() => setBeingFollowedVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.shieldActionIcon}>🤫</Text>
+              <Text style={[styles.shieldActionTitle, { color: '#3730A3' }]}>Silent SOS</Text>
+              <Text style={styles.shieldActionSub}>For danger / hiding</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.shieldActionCard, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}
+              onPress={() => setJourneySentinelVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.shieldActionIcon}>⏱️</Text>
+              <Text style={[styles.shieldActionTitle, { color: '#166534' }]}>Safe Arrival</Text>
+              <Text style={styles.shieldActionSub}>Night transit timer</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.shieldActionCard, { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }]}
+              onPress={() => setFakeCallVisible(true)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.shieldActionIcon}>📞</Text>
+              <Text style={[styles.shieldActionTitle, { color: '#9A3412' }]}>Fake Call</Text>
+              <Text style={styles.shieldActionSub}>Discreet cab exit</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <View style={styles.grid}>
-          <TouchableOpacity
-            style={styles.gridCard}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('SafeZonesTab')}
-          >
-            <View style={[styles.cardIconBg, { backgroundColor: '#E0F2FE' }]}>
-              <Text style={styles.cardIcon}>🏥</Text>
+        {/* 5. LIVE SAFETY & DISASTER NEWS FEED */}
+        <View style={styles.newsSection}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.sectionTitle}>Safety & Disaster News</Text>
+              <Text style={styles.sectionSubTitle}>Official bulletins, weather & police advisories</Text>
             </View>
-            <Text style={styles.cardTitle}>Safe Zones</Text>
-            <Text style={styles.cardDesc}>Hospitals, Police, Shelters</Text>
-          </TouchableOpacity>
+            <View style={styles.liveTag}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveTagText}>LIVE</Text>
+            </View>
+          </View>
 
-          <TouchableOpacity
-            style={styles.gridCard}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('ReportsTab')}
+          {/* News Filter Chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterChipsRow}
           >
-            <View style={[styles.cardIconBg, { backgroundColor: '#FEF3C7' }]}>
-              <Text style={styles.cardIcon}>⚠️</Text>
-            </View>
-            <Text style={styles.cardTitle}>Live Hazards</Text>
-            <Text style={styles.cardDesc}>Safety Alerts & Roadblocks</Text>
-          </TouchableOpacity>
+            {[
+              { id: 'all', label: 'All Updates' },
+              { id: 'disaster', label: '🏛️ Disaster' },
+              { id: 'women_safety', label: '🛡️ Women Defense' },
+              { id: 'weather', label: '🌧️ Weather' },
+            ].map((chip) => {
+              const active = newsFilter === chip.id;
+              return (
+                <TouchableOpacity
+                  key={chip.id}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                  onPress={() => setNewsFilter(chip.id as any)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                    {chip.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
 
-          <TouchableOpacity
-            style={styles.gridCard}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('ChatbotTab')}
-          >
-            <View style={[styles.cardIconBg, { backgroundColor: '#FCE7F3' }]}>
-              <Text style={styles.cardIcon}>💬</Text>
-            </View>
-            <Text style={styles.cardTitle}>MIA Assistant</Text>
-            <Text style={styles.cardDesc}>Emergency AI • MR / HI / EN</Text>
-          </TouchableOpacity>
+          {/* News Cards */}
+          <View style={styles.newsList}>
+            {filteredNews.map((item) => (
+              <View key={item.id} style={styles.newsCard}>
+                <View style={styles.newsTopRow}>
+                  <View
+                    style={[
+                      styles.newsCategoryBadge,
+                      { backgroundColor: `${item.categoryColor}15` },
+                    ]}
+                  >
+                    <Text style={[styles.newsCategoryText, { color: item.categoryColor }]}>
+                      {item.categoryIcon} {item.categoryLabel}
+                    </Text>
+                  </View>
+                  <Text style={styles.newsTimeAgo}>{item.timeAgo}</Text>
+                </View>
 
-          <TouchableOpacity
-            style={styles.gridCard}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('ProfileTab')}
-          >
-            <View style={[styles.cardIconBg, { backgroundColor: '#F3E8FF' }]}>
-              <Text style={styles.cardIcon}>👥</Text>
-            </View>
-            <Text style={styles.cardTitle}>Guardians & ID</Text>
-            <Text style={styles.cardDesc}>{contacts.length} Contacts Configured</Text>
-          </TouchableOpacity>
+                <Text style={styles.newsTitle}>{item.title}</Text>
+                <Text style={styles.newsSummary}>{item.summary}</Text>
+
+                <View style={styles.newsFooterRow}>
+                  <Text style={styles.newsSource}>Official: {item.source}</Text>
+                  {item.isUrgent && (
+                    <View style={styles.urgentPill}>
+                      <Text style={styles.urgentText}>PRIORITY</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* 6. CORE SAFETY SERVICES NAVIGATION */}
+        <View style={styles.servicesSection}>
+          <Text style={styles.sectionTitle}>Safety Services</Text>
+          <View style={styles.servicesRow}>
+            <TouchableOpacity
+              style={styles.serviceCard}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('SafeZonesTab')}
+            >
+              <View style={[styles.serviceIconBg, { backgroundColor: '#E0F2FE' }]}>
+                <Text style={styles.serviceIcon}>🏥</Text>
+              </View>
+              <Text style={styles.serviceTitle}>Safe Zones</Text>
+              <Text style={styles.serviceSub}>Hospitals, Shelters</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.serviceCard}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('ReportsTab')}
+            >
+              <View style={[styles.serviceIconBg, { backgroundColor: '#FEF3C7' }]}>
+                <Text style={styles.serviceIcon}>⚠️</Text>
+              </View>
+              <Text style={styles.serviceTitle}>Live Hazards</Text>
+              <Text style={styles.serviceSub}>Roadblocks & Alerts</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.serviceCard}
+              activeOpacity={0.75}
+              onPress={() => navigation.navigate('ChatbotTab')}
+            >
+              <View style={[styles.serviceIconBg, { backgroundColor: '#FCE7F3' }]}>
+                <Text style={styles.serviceIcon}>💬</Text>
+              </View>
+              <Text style={styles.serviceTitle}>MIA Assistant</Text>
+              <Text style={styles.serviceSub}>Emergency AI Bot</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </ScrollView>
 
-      {/* Standard SOS Countdown & Dispatch Modal */}
+      {/* Standard SOS Modal */}
       <SosModal
         visible={sosModalVisible}
         onClose={() => setSosModalVisible(false)}
         userCoords={coords}
       />
 
-      {/* Dedicated Women Safety Modals */}
+      {/* Women Safety Modals */}
       <BeingFollowedModal
         visible={beingFollowedVisible}
         onClose={() => setBeingFollowedVisible(false)}
@@ -512,7 +656,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         userCoords={coords}
       />
 
-      {/* Quick Setup Modal for Parents / Spouse Emergency Number */}
+      {/* Parents / Spouse Mobile Number Config Modal */}
       <Modal
         visible={parentModalVisible}
         transparent
@@ -532,7 +676,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             </View>
 
             <Text style={styles.parentModalDesc}>
-              When you tap the big red SOS button, your live GPS coordinates, Google Maps route link, and emergency distress alert will be sent immediately to this phone number.
+              When you press the big red SOS button or stealth triggers, your live GPS location and distress alert will be sent directly to this mobile number.
             </Text>
 
             <Text style={styles.inputLabel}>Guardian Relation / Name</Text>
@@ -574,258 +718,171 @@ const styles = StyleSheet.create({
     backgroundColor: THEME.background,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 40,
   },
+  // Top Header
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
-  greetingSub: {
-    fontSize: 14,
+  headerTextCol: {
+    flex: 1,
+  },
+  headerGreeting: {
+    fontSize: 13,
     color: THEME.textSecondary,
     fontWeight: '500',
-    letterSpacing: 0.2,
   },
-  greetingTitle: {
-    fontSize: 24,
-    color: THEME.textPrimary,
+  headerUserName: {
+    fontSize: 22,
     fontWeight: '800',
-    letterSpacing: -0.5,
+    color: THEME.textPrimary,
+    letterSpacing: -0.4,
   },
-  statusPill: {
+  shieldPill: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.safeGreenBg,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: '#C8E6C9',
+    borderColor: THEME.safeGreenBorder,
   },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  shieldPulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
     backgroundColor: THEME.safeGreen,
     marginRight: 6,
   },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '700',
+  shieldPillText: {
+    fontSize: 11,
+    fontWeight: '800',
     color: THEME.safeGreen,
+    letterSpacing: 0.5,
   },
-  locationCard: {
+
+  // Location Strip
+  locationStrip: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: THEME.cardBg,
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
     borderWidth: 1,
     borderColor: THEME.border,
   },
-  locationIcon: {
-    fontSize: 22,
-    marginRight: 12,
+  locationPinIcon: {
+    fontSize: 18,
+    marginRight: 8,
   },
-  locationDetails: {
+  locationTextCol: {
     flex: 1,
   },
-  locationTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: THEME.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+  locationLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: THEME.textLight,
+    letterSpacing: 0.6,
   },
-  locationSubtitle: {
-    fontSize: 14,
+  locationValue: {
+    fontSize: 13,
     fontWeight: '700',
     color: THEME.textPrimary,
-    marginTop: 2,
+    marginTop: 1,
   },
-  locationBadge: {
-    backgroundColor: '#E0F2FE',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+  refreshBtn: {
+    padding: 6,
     borderRadius: 8,
+    backgroundColor: '#F1F5F9',
   },
-  locationBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0284C7',
+  refreshBtnText: {
+    fontSize: 13,
   },
-  guardianBar: {
+
+  // 1. Hero SOS Card
+  sosCard: {
+    backgroundColor: THEME.cardBg,
+    borderRadius: 20,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: THEME.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  guardianLinkBar: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F0FDF4',
     borderWidth: 1,
     borderColor: '#BBF7D0',
-    borderRadius: 14,
-    padding: 12,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     marginBottom: 16,
   },
-  guardianAvatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: '#DCFCE7',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
+  guardianLinkBarUnset: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
   },
-  guardianAvatarIcon: {
+  guardianLinkIcon: {
     fontSize: 18,
+    marginRight: 8,
   },
-  guardianInfo: {
+  guardianLinkTextCol: {
     flex: 1,
   },
-  guardianBadge: {
+  guardianLinkTag: {
     fontSize: 9,
     fontWeight: '800',
-    color: '#16A34A',
-    letterSpacing: 0.8,
+    color: THEME.textSecondary,
+    letterSpacing: 0.5,
   },
-  guardianName: {
-    fontSize: 13,
+  guardianLinkName: {
+    fontSize: 12,
     fontWeight: '700',
     color: THEME.textPrimary,
+    marginTop: 1,
   },
-  guardianPhone: {
-    fontSize: 11,
-    color: THEME.textSecondary,
-  },
-  guardianCallBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#16A34A',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    gap: 4,
-  },
-  guardianCallIcon: {
-    fontSize: 12,
-  },
-  guardianCallText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  womenSafetySection: {
-    marginBottom: 20,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  shieldBadge: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: THEME.primary,
-    letterSpacing: 0.8,
-  },
-  beingFollowedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#881337',
-    borderRadius: 16,
-    padding: 14,
-    shadowColor: '#881337',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-    marginBottom: 10,
-  },
-  bannerIconContainer: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  bannerIcon: {
-    fontSize: 22,
-  },
-  bannerTextCol: {
-    flex: 1,
-  },
-  bannerTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  bannerDesc: {
-    fontSize: 11,
-    color: '#FECDD3',
-    marginTop: 2,
-    fontWeight: '500',
-  },
-  bannerArrow: {
-    fontSize: 18,
-    color: '#FFFFFF',
-    fontWeight: '800',
-    marginLeft: 8,
-  },
-  protectiveGrid: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  protectiveCard: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 12,
+  guardianEditPill: {
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    alignItems: 'center',
+    borderColor: THEME.border,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
   },
-  protectiveIcon: {
-    fontSize: 20,
-    marginBottom: 4,
-  },
-  protectiveTitle: {
-    fontSize: 12,
+  guardianEditText: {
+    fontSize: 10,
     fontWeight: '800',
+    color: THEME.blue,
   },
-  protectiveSub: {
-    fontSize: 9,
-    color: THEME.textSecondary,
-    marginTop: 2,
-    textAlign: 'center',
-  },
-  sosSection: {
+  sosButtonContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 10,
-    height: SOS_BUTTON_SIZE + 36,
+    width: SOS_BUTTON_SIZE + 32,
+    height: SOS_BUTTON_SIZE + 32,
+    marginVertical: 4,
   },
-  sosOuterRing: {
+  sosOuterGlow: {
     position: 'absolute',
-    width: SOS_BUTTON_SIZE + 36,
-    height: SOS_BUTTON_SIZE + 36,
-    borderRadius: (SOS_BUTTON_SIZE + 36) / 2,
+    width: SOS_BUTTON_SIZE + 32,
+    height: SOS_BUTTON_SIZE + 32,
+    borderRadius: (SOS_BUTTON_SIZE + 32) / 2,
     backgroundColor: THEME.primaryGlow,
-  },
-  sosMiddleRing: {
-    width: SOS_BUTTON_SIZE + 14,
-    height: SOS_BUTTON_SIZE + 14,
-    borderRadius: (SOS_BUTTON_SIZE + 14) / 2,
-    backgroundColor: 'rgba(230, 57, 70, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   sosButton: {
     width: SOS_BUTTON_SIZE,
@@ -835,39 +892,71 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: THEME.primaryDark,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
     borderWidth: 4,
     borderColor: '#FFFFFF',
   },
   sosText: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 2,
   },
   sosSubtext: {
-    fontSize: 9,
+    fontSize: 8,
     fontWeight: '800',
     color: 'rgba(255, 255, 255, 0.9)',
-    letterSpacing: 1.2,
-    marginTop: 4,
+    letterSpacing: 1,
+    marginTop: 2,
   },
-  sosHelperText: {
-    textAlign: 'center',
-    fontSize: 12,
+  sosInstruction: {
+    fontSize: 11,
     color: THEME.textSecondary,
-    marginBottom: 20,
-    paddingHorizontal: 20,
-    lineHeight: 18,
+    textAlign: 'center',
+    marginTop: 10,
+    fontWeight: '500',
   },
+
+  // 2. Hotlines
   hotlinesSection: {
-    marginBottom: 24,
+    marginBottom: 16,
   },
-  sectionHeader: {
-    marginBottom: 12,
+  hotlinesRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  hotlinePill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 6,
+  },
+  hotlineIcon: {
+    fontSize: 18,
+  },
+  hotlineLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  hotlineNum: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+
+  // Shared Section Header
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 10,
   },
   sectionTitle: {
     fontSize: 16,
@@ -875,104 +964,384 @@ const styles = StyleSheet.create({
     color: THEME.textPrimary,
     letterSpacing: -0.3,
   },
-  hotlinesRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
-    marginTop: 10,
-  },
-  hotlineBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  hotlineIcon: {
-    fontSize: 20,
-    marginBottom: 4,
-  },
-  hotlineLabel: {
+  sectionSubTitle: {
     fontSize: 11,
-    fontWeight: '700',
+    color: THEME.textSecondary,
+    marginTop: 1,
   },
-  hotlineNum: {
-    fontSize: 12,
+
+  // 3. Disaster Risk Section
+  disasterSection: {
+    marginBottom: 18,
+  },
+  threatBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+  },
+  threatBadgeLow: {
+    backgroundColor: '#DCFCE7',
+  },
+  threatBadgeMed: {
+    backgroundColor: '#FEF3C7',
+  },
+  threatBadgeHigh: {
+    backgroundColor: '#FEE2E2',
+  },
+  threatBadgeText: {
+    fontSize: 10,
     fontWeight: '800',
-    color: THEME.textPrimary,
-    marginTop: 2,
+    letterSpacing: 0.5,
   },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12,
+  threatTextLow: {
+    color: '#15803D',
   },
-  gridCard: {
-    width: (width - 52) / 2,
+  threatTextMed: {
+    color: '#B45309',
+  },
+  threatTextHigh: {
+    color: '#B91C1C',
+  },
+  disasterCard: {
     backgroundColor: THEME.cardBg,
-    padding: 16,
     borderRadius: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: THEME.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-    elevation: 1,
   },
-  cardIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
+  riskBarTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#E2E8F0',
+    overflow: 'hidden',
     marginBottom: 12,
   },
-  cardIcon: {
-    fontSize: 20,
+  riskBarFill: {
+    height: '100%',
+    borderRadius: 3,
   },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: '700',
+  disasterHeadline: {
+    fontSize: 14,
+    fontWeight: '800',
     color: THEME.textPrimary,
+    marginBottom: 4,
   },
-  cardDesc: {
+  disasterSummary: {
     fontSize: 12,
     color: THEME.textSecondary,
-    marginTop: 2,
-    fontWeight: '500',
+    lineHeight: 17,
+    marginBottom: 12,
   },
-  guardianHeaderRow: {
+  factorsGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  setupPill: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  setupPillText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: '#D97706',
-  },
-  guardianActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
+    marginBottom: 12,
   },
-  guardianEditBtn: {
-    backgroundColor: '#F1F5F9',
-    padding: 8,
-    borderRadius: 8,
+  factorCard: {
+    width: (width - 32 - 28 - 8) / 2,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  guardianEditIcon: {
-    fontSize: 14,
+  factorTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
   },
+  factorIcon: {
+    fontSize: 16,
+  },
+  factorPercent: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  factorName: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.textPrimary,
+  },
+  factorStatus: {
+    fontSize: 9,
+    color: THEME.textSecondary,
+    marginTop: 1,
+  },
+  shelterShortcutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+  },
+  shelterShortcutIcon: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  shelterShortcutText: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.blue,
+  },
+  shelterShortcutArrow: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.blue,
+  },
+
+  // 4. Women's Safety Shield
+  womenShieldSection: {
+    marginBottom: 18,
+  },
+  stealthBadge: {
+    backgroundColor: '#FFE4E6',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  stealthBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.rose,
+    letterSpacing: 0.5,
+  },
+  beingFollowedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#881337',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+    shadowColor: '#881337',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  followedIconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.16)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  followedIconText: {
+    fontSize: 18,
+  },
+  followedTextCol: {
+    flex: 1,
+  },
+  followedTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  followedDesc: {
+    fontSize: 10,
+    color: '#FECDD3',
+    marginTop: 1,
+    fontWeight: '500',
+  },
+  followedArrow: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    marginLeft: 6,
+  },
+  shieldActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  shieldActionCard: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  shieldActionIcon: {
+    fontSize: 18,
+    marginBottom: 2,
+  },
+  shieldActionTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  shieldActionSub: {
+    fontSize: 9,
+    color: THEME.textSecondary,
+    marginTop: 1,
+    textAlign: 'center',
+  },
+
+  // 5. Safety News
+  newsSection: {
+    marginBottom: 18,
+  },
+  liveTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEE2E2',
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    borderRadius: 6,
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#DC2626',
+    marginRight: 4,
+  },
+  liveTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#DC2626',
+    letterSpacing: 0.5,
+  },
+  filterChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  filterChip: {
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: THEME.border,
+  },
+  filterChipActive: {
+    backgroundColor: '#0F172A',
+    borderColor: '#0F172A',
+  },
+  filterChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: THEME.textSecondary,
+  },
+  filterChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  newsList: {
+    gap: 8,
+  },
+  newsCard: {
+    backgroundColor: THEME.cardBg,
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: THEME.border,
+  },
+  newsTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  newsCategoryBadge: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  newsCategoryText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+  },
+  newsTimeAgo: {
+    fontSize: 10,
+    color: THEME.textLight,
+  },
+  newsTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: THEME.textPrimary,
+    marginBottom: 3,
+  },
+  newsSummary: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    lineHeight: 16,
+  },
+  newsFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  newsSource: {
+    fontSize: 10,
+    color: THEME.textLight,
+    fontWeight: '500',
+  },
+  urgentPill: {
+    backgroundColor: '#FEE2E2',
+    paddingVertical: 1,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  urgentText: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: '#DC2626',
+    letterSpacing: 0.5,
+  },
+
+  // 6. Services Bottom Section
+  servicesSection: {
+    marginBottom: 10,
+  },
+  servicesRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  serviceCard: {
+    flex: 1,
+    backgroundColor: THEME.cardBg,
+    borderRadius: 14,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: THEME.border,
+  },
+  serviceIconBg: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  serviceIcon: {
+    fontSize: 18,
+  },
+  serviceTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.textPrimary,
+  },
+  serviceSub: {
+    fontSize: 9,
+    color: THEME.textSecondary,
+    marginTop: 1,
+    textAlign: 'center',
+  },
+
+  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.65)',
