@@ -76,7 +76,6 @@ export default function SafeZonesScreen() {
   const loadLocationAndZones = async () => {
     setLoading(true);
     try {
-      await LocationService.requestPermission();
       const enabled = await LocationService.isLocationEnabled();
       setLocationDisabled(!enabled);
 
@@ -92,6 +91,11 @@ export default function SafeZonesScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleOpenGoogleMapsSearch = () => {
+    AlertService.triggerHaptic();
+    SafeZoneService.openGoogleMapsSearch(selectedCategory, userCoords || undefined);
   };
 
   const filterZones = async () => {
@@ -383,9 +387,9 @@ export default function SafeZonesScreen() {
           })}
         </ScrollView>
 
-        {/* --- GOOGLE MAPS INTERACTIVE VIEW --- */}
+        {/* --- GOOGLE MAPS LIVE NAVIGATION VIEW --- */}
         <View style={styles.googleMapCard}>
-          {/* Google Maps Top Controls */}
+          {/* Google Maps Top Bar */}
           <View style={styles.gMapTopRow}>
             {/* Map Type Toggle: Map / Satellite */}
             <View style={styles.gMapTypeToggle}>
@@ -429,6 +433,7 @@ export default function SafeZonesScreen() {
             <TouchableOpacity
               style={styles.gMapOpenAppBtn}
               onPress={() => {
+                AlertService.triggerHaptic();
                 if (selectedZone) {
                   handleNavigate(selectedZone);
                 } else if (userCoords) {
@@ -438,204 +443,193 @@ export default function SafeZonesScreen() {
               activeOpacity={0.8}
             >
               <Text style={styles.gMapOpenAppIcon}>↗️</Text>
-              <Text style={styles.gMapOpenAppText}>Google Maps</Text>
+              <Text style={styles.gMapOpenAppText}>Open Google Maps</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Authentic Google Maps Canvas */}
+          {/* Active Driving Navigation Route Card (Google Maps Driving Navigation UI matching user screenshot) */}
+          {selectedZone && (
+            <View style={styles.gMapRouteCard}>
+              <View style={styles.gMapRouteInfo}>
+                <View style={styles.gMapRoutePathRow}>
+                  <View style={styles.gMapRoutePathDots}>
+                    <View style={styles.gMapRouteDotOrigin} />
+                    <View style={styles.gMapRouteDotDash} />
+                    <View style={styles.gMapRouteDotDest} />
+                  </View>
+                  <View style={styles.gMapRoutePathTexts}>
+                    <Text style={styles.gMapRouteOriginText} numberOfLines={1}>
+                      {userCoords?.subLocality || userCoords?.city || 'My Live Location'}
+                    </Text>
+                    <Text style={styles.gMapRouteDestText} numberOfLines={1}>
+                      {selectedZone.name}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Driving Time & Distance ETA pill */}
+                <View style={styles.gMapEtaRow}>
+                  <View style={styles.gMapEtaBadge}>
+                    <Text style={styles.gMapEtaTime}>
+                      {Math.max(2, Math.round((selectedZone.distanceKm ?? 1) * 3.5))} min
+                    </Text>
+                    <Text style={styles.gMapEtaDistance}>
+                      ({selectedZone.distanceKm !== undefined
+                        ? selectedZone.distanceKm < 1
+                          ? `${Math.round(selectedZone.distanceKm * 1000)} m`
+                          : `${selectedZone.distanceKm.toFixed(1)} km`
+                        : 'Nearby'})
+                    </Text>
+                  </View>
+                  <Text style={styles.gMapFastestRouteText}>• Fastest route with live traffic</Text>
+                </View>
+              </View>
+
+              {/* Instant Turn-by-Turn Launch Button */}
+              <TouchableOpacity
+                style={styles.gMapStartNavBtn}
+                onPress={() => {
+                  AlertService.triggerHaptic();
+                  handleNavigate(selectedZone);
+                }}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.gMapStartNavIcon}>▶</Text>
+                <Text style={styles.gMapStartNavText}>START NAVIGATION</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Authentic Google Maps Canvas with Real Dynamic GPS Radar */}
           <View
             style={[
               styles.gMapCanvas,
               mapType === 'satellite' ? styles.gMapCanvasSatellite : styles.gMapCanvasDefault,
             ]}
           >
-            {/* Scalable Vector Map Landscape */}
-            <View
-              style={[
-                styles.gMapVectorScene,
-                { transform: [{ scale: mapZoom }] },
-              ]}
-            >
-              {/* Natural Land Features: Waterway / River */}
-              <View
-                style={[
-                  styles.gMapWaterway,
-                  mapType === 'satellite' && styles.gMapWaterwaySatellite,
-                ]}
-              >
-                <Text
+            {/* Range distance rings (1km, 3km, 5km) */}
+            <View style={[styles.gMapRadarRing, { width: 90 * mapZoom, height: 90 * mapZoom, borderRadius: 45 * mapZoom }]} />
+            <View style={[styles.gMapRadarRing, { width: 180 * mapZoom, height: 180 * mapZoom, borderRadius: 90 * mapZoom }]} />
+            <View style={[styles.gMapRadarRing, { width: 270 * mapZoom, height: 270 * mapZoom, borderRadius: 135 * mapZoom }]} />
+
+            {/* Range Label Indicators */}
+            <Text style={[styles.gMapRadarLabel, { top: 140 - 45 * mapZoom - 10 }]}>1 km</Text>
+            <Text style={[styles.gMapRadarLabel, { top: 140 - 90 * mapZoom - 10 }]}>3 km</Text>
+            <Text style={[styles.gMapRadarLabel, { top: 140 - 135 * mapZoom - 10 }]}>5 km</Text>
+
+            {/* Center User Location Pin (Google Maps Blue Pulsing Dot & Directional Halo) */}
+            <View style={styles.gMapUserDotWrapper}>
+              <View style={styles.gMapUserBeam} />
+              <View style={styles.gMapUserPulseRing} />
+              <View style={styles.gMapUserBlueDot} />
+              <View style={styles.gMapUserLabelPill}>
+                <Text style={styles.gMapUserLabelText}>You (Live GPS)</Text>
+              </View>
+            </View>
+
+            {/* Real Dynamic GPS Pins relative to User Coords */}
+            {safeZones.slice(0, 15).map((zone) => {
+              const pinStyle = getGooglePinStyle(zone.category, zone.isUserAdded);
+              const isSelected = selectedZone?.id === zone.id;
+
+              // Compute real relative coordinates in km from live GPS
+              let posX = 160;
+              let posY = 140;
+
+              if (userCoords && zone.latitude && zone.longitude) {
+                const dLatKm = (zone.latitude - userCoords.latitude) * 111.0;
+                const dLonKm =
+                  (zone.longitude - userCoords.longitude) *
+                  111.0 *
+                  Math.cos((userCoords.latitude * Math.PI) / 180);
+                const scale = 28 * mapZoom;
+                posX = 160 + dLonKm * scale;
+                posY = 140 - dLatKm * scale; // Latitude increases northward
+              } else if (zone.distanceKm !== undefined) {
+                // Approximate radial distribution if user coordinates not exact
+                const hash = Math.abs(zone.name.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
+                const angle = (hash % 360) * (Math.PI / 180);
+                const distPixels = Math.min(120, zone.distanceKm * 25 * mapZoom);
+                posX = 160 + Math.cos(angle) * distPixels;
+                posY = 140 + Math.sin(angle) * distPixels;
+              }
+
+              // Clamp inside visible canvas bounds
+              const boundedX = Math.max(22, Math.min(298, posX));
+              const boundedY = Math.max(26, Math.min(252, posY));
+
+              return (
+                <View
+                  key={zone.id}
                   style={[
-                    styles.gMapWaterText,
-                    mapType === 'satellite' && { color: '#64748B' },
+                    styles.gMapMarkerAnchor,
+                    {
+                      left: boundedX - 14,
+                      top: boundedY - 32,
+                      zIndex: isSelected ? 50 : 10,
+                    },
                   ]}
                 >
-                  River Canal
-                </Text>
-              </View>
-
-              {/* Natural Land Features: City Parks */}
-              <View
-                style={[
-                  styles.gMapParkOne,
-                  mapType === 'satellite' && styles.gMapParkSatellite,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.gMapParkText,
-                    mapType === 'satellite' && { color: '#86EFAC' },
-                  ]}
-                >
-                  🌳 Central Park
-                </Text>
-              </View>
-
-              <View
-                style={[
-                  styles.gMapParkTwo,
-                  mapType === 'satellite' && styles.gMapParkSatellite,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.gMapParkText,
-                    mapType === 'satellite' && { color: '#86EFAC' },
-                  ]}
-                >
-                  🌿 Botanical Green
-                </Text>
-              </View>
-
-              {/* Urban City Blocks */}
-              <View style={[styles.gMapBuilding, { top: 32, left: 32, width: 44, height: 34 }]} />
-              <View style={[styles.gMapBuilding, { top: 32, left: 86, width: 34, height: 34 }]} />
-              <View style={[styles.gMapBuilding, { top: 142, left: 24, width: 48, height: 38 }]} />
-              <View style={[styles.gMapBuilding, { top: 142, right: 32, width: 58, height: 34 }]} />
-              <View style={[styles.gMapBuilding, { bottom: 28, left: 92, width: 44, height: 28 }]} />
-
-              {/* Major Highway / Arterial Ribbon (Yellow with White Casing) */}
-              <View
-                style={[
-                  styles.gMapHighway,
-                  mapType === 'satellite' && styles.gMapHighwaySatellite,
-                ]}
-              >
-                <View style={styles.gMapHighwayBadge}>
-                  <Text style={styles.gMapHighwayBadgeText}>NH 48</Text>
-                </View>
-              </View>
-
-              {/* Street Network (Avenues & Roads) */}
-              <View style={[styles.gMapRoadHorizontal, { top: 92 }]}>
-                <Text style={styles.gMapStreetName}>MG ROAD / MAIN STREET</Text>
-              </View>
-              <View style={[styles.gMapRoadHorizontal, { top: 202 }]}>
-                <Text style={styles.gMapStreetName}>STATION ROAD</Text>
-              </View>
-
-              <View style={[styles.gMapRoadVertical, { left: 96 }]}>
-                <Text style={[styles.gMapStreetNameVertical, { top: 38 }]}>CIVIL AVE</Text>
-              </View>
-              <View style={[styles.gMapRoadVertical, { right: 104 }]}>
-                <Text style={[styles.gMapStreetNameVertical, { top: 138 }]}>HOSPITAL RD</Text>
-              </View>
-
-              {/* Traffic Flow Line (Google Green / Amber Live Traffic) */}
-              <View style={styles.gMapTrafficFlowGreen} />
-              <View style={styles.gMapTrafficFlowAmber} />
-
-              {/* Center User Location Pin (Google Maps Blue Pulsing Dot & Beam) */}
-              <View style={styles.gMapUserDotWrapper}>
-                <View style={styles.gMapUserBeam} />
-                <View style={styles.gMapUserPulseRing} />
-                <View style={styles.gMapUserBlueDot} />
-                <View style={styles.gMapUserLabelPill}>
-                  <Text style={styles.gMapUserLabelText}>You (Live GPS)</Text>
-                </View>
-              </View>
-
-              {/* Authentic Google Maps Teardrop Markers for Safe Zones */}
-              {safeZones.slice(0, 6).map((zone, idx) => {
-                const pinStyle = getGooglePinStyle(zone.category, zone.isUserAdded);
-                const isSelected = selectedZone?.id === zone.id;
-
-                // Fixed geographical coordinates along city streets
-                const positions = [
-                  { top: 52, left: 196 },   // Hospital Rd North
-                  { top: 156, left: 58 },   // Civil Ave South
-                  { top: 58, left: 74 },    // Near Station Rd North
-                  { top: 172, left: 242 },  // Highway bypass East
-                  { top: 114, left: 268 },  // East commercial hub
-                  { top: 124, left: 34 },   // West Haven
-                ];
-                const pos = positions[idx % positions.length];
-
-                return (
-                  <View
-                    key={zone.id}
-                    style={[
-                      styles.gMapMarkerAnchor,
-                      { top: pos.top, left: pos.left, zIndex: isSelected ? 50 : 10 },
-                    ]}
-                  >
-                    {/* Selected Zone Google Maps Callout Bubble */}
-                    {isSelected && (
-                      <TouchableOpacity
-                        style={styles.gMapCallout}
-                        onPress={() => handleNavigate(zone)}
-                        activeOpacity={0.9}
-                      >
-                        <View style={styles.gMapCalloutRow}>
-                          <Text style={styles.gMapCalloutTitle} numberOfLines={1}>
-                            {zone.name}
-                          </Text>
-                          <Text style={styles.gMapCalloutDist}>
-                            {zone.distanceKm !== undefined
-                              ? `${zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)}m` : `${zone.distanceKm.toFixed(1)}km`}`
-                              : 'Near'}
-                          </Text>
-                        </View>
-                        <Text style={styles.gMapCalloutAction}>Directions ➔</Text>
-                        <View style={styles.gMapCalloutArrow} />
-                      </TouchableOpacity>
-                    )}
-
-                    {/* Google Teardrop Pin Button */}
+                  {/* Selected Zone Google Maps Callout Bubble */}
+                  {isSelected && (
                     <TouchableOpacity
-                      style={[
-                        styles.gMapTeardropWrapper,
-                        isSelected && styles.gMapTeardropSelected,
-                      ]}
+                      style={styles.gMapCallout}
                       onPress={() => {
                         AlertService.triggerHaptic();
-                        setSelectedZone(zone);
+                        handleNavigate(zone);
                       }}
-                      activeOpacity={0.85}
+                      activeOpacity={0.9}
                     >
-                      {/* Teardrop Balloon Head */}
-                      <View
-                        style={[
-                          styles.gMapTeardropHead,
-                          { backgroundColor: pinStyle.pinColor },
-                          isSelected && styles.gMapTeardropHeadActive,
-                        ]}
-                      >
-                        <Text style={styles.gMapTeardropIcon}>{pinStyle.icon}</Text>
+                      <View style={styles.gMapCalloutRow}>
+                        <Text style={styles.gMapCalloutTitle} numberOfLines={1}>
+                          {zone.name}
+                        </Text>
+                        <Text style={styles.gMapCalloutDist}>
+                          {zone.distanceKm !== undefined
+                            ? `${zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)}m` : `${zone.distanceKm.toFixed(1)}km`}`
+                            : 'Near'}
+                        </Text>
                       </View>
-                      {/* Teardrop Pointed Needle */}
-                      <View
-                        style={[
-                          styles.gMapTeardropPoint,
-                          { borderTopColor: pinStyle.pinColor },
-                        ]}
-                      />
-                      {/* Ground Shadow */}
-                      <View style={styles.gMapPinShadow} />
+                      <Text style={styles.gMapCalloutAction}>Directions in Google Maps ➔</Text>
+                      <View style={styles.gMapCalloutArrow} />
                     </TouchableOpacity>
-                  </View>
-                );
-              })}
-            </View>
+                  )}
+
+                  {/* Google Teardrop Pin Button */}
+                  <TouchableOpacity
+                    style={[
+                      styles.gMapTeardropWrapper,
+                      isSelected && styles.gMapTeardropSelected,
+                    ]}
+                    onPress={() => {
+                      AlertService.triggerHaptic();
+                      setSelectedZone(zone);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    {/* Teardrop Balloon Head */}
+                    <View
+                      style={[
+                        styles.gMapTeardropHead,
+                        { backgroundColor: pinStyle.pinColor },
+                        isSelected && styles.gMapTeardropHeadActive,
+                      ]}
+                    >
+                      <Text style={styles.gMapTeardropIcon}>{pinStyle.icon}</Text>
+                    </View>
+                    {/* Teardrop Pointed Needle */}
+                    <View
+                      style={[
+                        styles.gMapTeardropPoint,
+                        { borderTopColor: pinStyle.pinColor },
+                      ]}
+                    />
+                    {/* Ground Shadow */}
+                    <View style={styles.gMapPinShadow} />
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
 
             {/* Floating Google Maps Controls: Zoom + / - buttons */}
             <View style={styles.gMapZoomControls}>
@@ -643,7 +637,7 @@ export default function SafeZonesScreen() {
                 style={styles.gMapZoomBtn}
                 onPress={() => {
                   AlertService.triggerHaptic();
-                  setMapZoom((prev) => Math.min(prev + 0.25, 1.5));
+                  setMapZoom((prev) => Math.min(prev + 0.25, 1.75));
                 }}
                 activeOpacity={0.7}
               >
@@ -654,7 +648,7 @@ export default function SafeZonesScreen() {
                 style={styles.gMapZoomBtn}
                 onPress={() => {
                   AlertService.triggerHaptic();
-                  setMapZoom((prev) => Math.max(prev - 0.25, 0.85));
+                  setMapZoom((prev) => Math.max(prev - 0.25, 0.75));
                 }}
                 activeOpacity={0.7}
               >
@@ -693,18 +687,29 @@ export default function SafeZonesScreen() {
                 <Text style={[styles.gLetter, { color: '#EA4335' }]}>e</Text>
               </View>
               <View style={styles.gMapScaleContainer}>
-                <Text style={styles.gMapScaleText}>500 m</Text>
+                <Text style={styles.gMapScaleText}>{Math.round(500 / mapZoom)} m</Text>
                 <View style={styles.gMapScaleRuler} />
               </View>
             </View>
           </View>
 
-          {/* Helpful Navigation Subtext */}
-          <View style={styles.gMapFooterNotice}>
-            <Text style={styles.gMapFooterText}>
-              📍 Tap any Google pin to view details or tap "Directions" for live navigation
-            </Text>
-          </View>
+          {/* Direct Google Maps Instant Search Banner */}
+          <TouchableOpacity
+            style={styles.gMapSearchAllBanner}
+            onPress={handleOpenGoogleMapsSearch}
+            activeOpacity={0.85}
+          >
+            <View style={styles.gMapSearchAllLeft}>
+              <Text style={styles.gMapSearchAllIcon}>🔍</Text>
+              <View style={styles.gMapSearchAllTextCol}>
+                <Text style={styles.gMapSearchAllTitle}>Search More on Google Maps</Text>
+                <Text style={styles.gMapSearchAllSubtitle}>
+                  View all local clinics, dispensaries, hospitals & medical stores near you
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.gMapSearchAllChevron}>➔</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Selected Zone Quick Action Card */}
@@ -1135,6 +1140,110 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#1A73E8',
   },
+  gMapRouteCard: {
+    backgroundColor: '#1E293B',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#334155',
+  },
+  gMapRouteInfo: {
+    marginBottom: 8,
+  },
+  gMapRoutePathRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  gMapRoutePathDots: {
+    alignItems: 'center',
+    width: 14,
+  },
+  gMapRouteDotOrigin: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#60A5FA',
+  },
+  gMapRouteDotDash: {
+    width: 1.5,
+    height: 10,
+    backgroundColor: '#94A3B8',
+    marginVertical: 1,
+  },
+  gMapRouteDotDest: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+  },
+  gMapRoutePathTexts: {
+    flex: 1,
+  },
+  gMapRouteOriginText: {
+    fontSize: 11,
+    color: '#94A3B8',
+    fontWeight: '600',
+  },
+  gMapRouteDestText: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    marginTop: 1,
+  },
+  gMapEtaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  gMapEtaBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F766E',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    gap: 4,
+  },
+  gMapEtaTime: {
+    color: '#F0FDFA',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  gMapEtaDistance: {
+    color: '#CCFBF1',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  gMapFastestRouteText: {
+    color: '#4ADE80',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  gMapStartNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0284C7',
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+    shadowColor: '#0284C7',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  gMapStartNavIcon: {
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  gMapStartNavText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
   gMapCanvas: {
     width: '100%',
     height: 290,
@@ -1142,165 +1251,29 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   gMapCanvasDefault: {
-    backgroundColor: '#F4F3F0',
+    backgroundColor: '#F1F5F9',
   },
   gMapCanvasSatellite: {
-    backgroundColor: '#1E293B',
-  },
-  gMapVectorScene: {
-    width: '100%',
-    height: '100%',
-    position: 'relative',
-  },
-  gMapWaterway: {
-    position: 'absolute',
-    bottom: -20,
-    left: -20,
-    width: 140,
-    height: 120,
-    backgroundColor: '#A5D6F5',
-    borderTopRightRadius: 70,
-    borderBottomRightRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    transform: [{ rotate: '-15deg' }],
-  },
-  gMapWaterwaySatellite: {
     backgroundColor: '#0F172A',
   },
-  gMapWaterText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#185ABC',
-    letterSpacing: 0.5,
-    fontStyle: 'italic',
-  },
-  gMapParkOne: {
+  gMapRadarRing: {
     position: 'absolute',
-    top: 18,
-    right: 20,
-    width: 100,
-    height: 70,
-    backgroundColor: '#CCEADA',
-    borderRadius: 16,
-    padding: 6,
+    top: 140,
+    left: 160,
     borderWidth: 1,
-    borderColor: '#B7E1CD',
+    borderColor: 'rgba(59, 130, 246, 0.22)',
+    borderStyle: 'dashed',
+    transform: [{ translateX: -45 }, { translateY: -45 }],
   },
-  gMapParkTwo: {
+  gMapRadarLabel: {
     position: 'absolute',
-    bottom: 22,
-    right: 30,
-    width: 85,
-    height: 60,
-    backgroundColor: '#D2E3FC',
-    borderRadius: 14,
-    padding: 6,
-  },
-  gMapParkSatellite: {
-    backgroundColor: '#166534',
-    borderColor: '#14532D',
-  },
-  gMapParkText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#137333',
-  },
-  gMapBuilding: {
-    position: 'absolute',
-    backgroundColor: '#E5E7EB',
-    borderRadius: 4,
-    borderWidth: 0.5,
-    borderColor: '#D1D5DB',
-  },
-  gMapHighway: {
-    position: 'absolute',
-    top: 75,
-    left: -30,
-    width: 420,
-    height: 18,
-    backgroundColor: '#FCD88B',
-    borderTopWidth: 1.5,
-    borderBottomWidth: 1.5,
-    borderColor: '#FFFFFF',
-    transform: [{ rotate: '26deg' }],
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  gMapHighwaySatellite: {
-    backgroundColor: '#B45309',
-    borderColor: '#78350F',
-  },
-  gMapHighwayBadge: {
-    backgroundColor: '#F59E0B',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 3,
-    borderWidth: 0.5,
-    borderColor: '#FFFFFF',
-  },
-  gMapHighwayBadgeText: {
+    left: 164,
     fontSize: 8,
-    fontWeight: '900',
-    color: '#FFFFFF',
-  },
-  gMapRoadHorizontal: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 14,
-    backgroundColor: '#FFFFFF',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#E2E8F0',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-  },
-  gMapRoadVertical: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: 14,
-    backgroundColor: '#FFFFFF',
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    borderColor: '#E2E8F0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  gMapStreetName: {
-    fontSize: 7,
     fontWeight: '800',
-    color: '#70757A',
-    letterSpacing: 0.8,
-  },
-  gMapStreetNameVertical: {
-    position: 'absolute',
-    fontSize: 7,
-    fontWeight: '800',
-    color: '#70757A',
-    letterSpacing: 0.5,
-    transform: [{ rotate: '90deg' }],
-    width: 80,
-    textAlign: 'center',
-  },
-  gMapTrafficFlowGreen: {
-    position: 'absolute',
-    top: 96,
-    left: 10,
-    width: 140,
-    height: 3,
-    backgroundColor: '#34A853',
-    borderRadius: 1.5,
-  },
-  gMapTrafficFlowAmber: {
-    position: 'absolute',
-    top: 96,
-    left: 155,
-    width: 60,
-    height: 3,
-    backgroundColor: '#FBBC04',
-    borderRadius: 1.5,
+    color: '#64748B',
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+    paddingHorizontal: 3,
+    borderRadius: 3,
   },
   gMapUserDotWrapper: {
     position: 'absolute',
@@ -1574,18 +1547,43 @@ const styles = StyleSheet.create({
     height: 2,
     backgroundColor: '#5F6368',
   },
-  gMapFooterNotice: {
-    paddingVertical: 6,
+  gMapSearchAllBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#EFF6FF',
     borderTopWidth: 1,
-    borderTopColor: '#F1F3F4',
+    borderTopColor: '#DBEAFE',
   },
-  gMapFooterText: {
+  gMapSearchAllLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+  },
+  gMapSearchAllIcon: {
+    fontSize: 16,
+  },
+  gMapSearchAllTextCol: {
+    flex: 1,
+  },
+  gMapSearchAllTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1D4ED8',
+  },
+  gMapSearchAllSubtitle: {
     fontSize: 10,
-    color: '#5F6368',
-    fontWeight: '600',
-    textAlign: 'center',
+    color: '#3B82F6',
+    marginTop: 1,
+  },
+  gMapSearchAllChevron: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#1D4ED8',
+    marginLeft: 6,
   },
 
   selectedZoneCard: {

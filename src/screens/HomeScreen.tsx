@@ -150,17 +150,19 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const refreshLocation = async () => {
     setLoadingLocation(true);
     try {
-      await LocationService.requestPermission();
-      const isEnabled = await LocationService.isLocationEnabled();
-      if (!isEnabled) {
-        Alert.alert(
-          'Location Services Disabled',
-          'Please turn on Device Location / GPS in your phone settings to detect your real-time coordinates and nearby emergency services.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => LocationService.openLocationSettings() },
-          ]
-        );
+      const hasPerm = await LocationService.checkPermission();
+      if (hasPerm) {
+        const isEnabled = await LocationService.isLocationEnabled();
+        if (!isEnabled) {
+          Alert.alert(
+            'Location Services Disabled',
+            'Please turn on Device Location / GPS in your phone settings to detect your real-time coordinates and nearby emergency services.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => LocationService.openLocationSettings() },
+            ]
+          );
+        }
       }
       const loc = await LocationService.getCurrentLocation();
       setCoords(loc);

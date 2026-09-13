@@ -44,6 +44,27 @@ class LocationServiceImpl {
   }
 
   /**
+   * Check if location permission is already granted without popping up any prompt
+   */
+  async checkPermission(): Promise<boolean> {
+    if (Platform.OS === 'android') {
+      try {
+        const finePermission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
+        const coarsePermission = PermissionsAndroid.PERMISSIONS.ACCESS_COARSE_LOCATION;
+        const fineGranted = await PermissionsAndroid.check(finePermission);
+        const coarseGranted = await PermissionsAndroid.check(coarsePermission);
+        const isGranted = fineGranted || coarseGranted;
+        this.permissionGranted = isGranted;
+        return isGranted;
+      } catch (err) {
+        return false;
+      }
+    }
+    this.permissionGranted = true;
+    return true;
+  }
+
+  /**
    * Request location permissions for Android / iOS
    */
   async requestPermission(): Promise<boolean> {
@@ -205,9 +226,10 @@ class LocationServiceImpl {
    * Get the current device coordinates using native Android GPS hardware first
    */
   async getCurrentLocation(): Promise<LocationCoords> {
-    // 1. Ensure permission is requested
-    if (this.permissionGranted === null) {
-      await this.requestPermission();
+    // 1. Check if permission has been granted without aggressively prompting
+    const hasPerm = await this.checkPermission();
+    if (!hasPerm && Platform.OS === 'android') {
+      return this.lastKnownLocation;
     }
 
     // 2. Primary: Use Native Android GPS Module directly from hardware sensor

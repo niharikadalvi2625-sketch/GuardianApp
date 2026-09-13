@@ -2,7 +2,7 @@ import { Linking, Platform } from 'react-native';
 import { SafeZone, SafeZoneCategory, LocationCoords } from '../types';
 import { StorageService } from './storageService';
 
-const SAFE_ZONES_CACHE_PREFIX = '@guardian_safe_zones_v3_';
+const SAFE_ZONES_CACHE_PREFIX = '@guardian_safe_zones_v4_';
 const CUSTOM_SHELTERS_KEY = '@guardian_custom_safe_shelters';
 
 const OVERPASS_ENDPOINTS = [
@@ -36,7 +36,6 @@ function getDefaultPhoneForCategory(category: SafeZoneCategory, country?: string
   if (isIndia) {
     switch (category) {
       case 'hospital':
-        return '108';
       case 'clinic':
         return '108';
       case 'police':
@@ -64,157 +63,96 @@ function getDefaultPhoneForCategory(category: SafeZoneCategory, country?: string
   }
 }
 
-function buildOverpassQuery(lat: number, lon: number, radiusMeters: number = 8000): string {
-  return `[out:json][timeout:10];
-(
-  node["amenity"~"^(hospital|clinic|doctors|police|shelter|fire_station|community_centre)$"](around:${radiusMeters},${lat},${lon});
-  node["healthcare"~"^(hospital|clinic|doctor)$"](around:${radiusMeters},${lat},${lon});
-  way["amenity"~"^(hospital|clinic|doctors|police|shelter|fire_station|community_centre)$"](around:${radiusMeters},${lat},${lon});
-  way["healthcare"~"^(hospital|clinic)$"](around:${radiusMeters},${lat},${lon});
-);
-out center 60;`;
-}
+function classifyCategory(rawName: string, amenity: string = '', healthcare: string = ''): SafeZoneCategory {
+  const name = rawName.toLowerCase();
+  const a = amenity.toLowerCase();
+  const h = healthcare.toLowerCase();
 
-function parseOverpassElements(elements: any[], userCoords: LocationCoords): SafeZone[] {
-  const parsed: SafeZone[] = [];
-  const seenKeys = new Set<string>();
-
-  for (const el of elements) {
-    const tags = el.tags || {};
-    const rawName = tags.name || tags['name:en'] || '';
-    if (!rawName || rawName.trim().length < 2) continue;
-    const name = rawName.trim();
-
-    const lat = el.lat ?? el.center?.lat;
-    const lon = el.lon ?? el.center?.lon;
-    if (typeof lat !== 'number' || typeof lon !== 'number') continue;
-
-    // Deduplicate identical places within ~100m
-    const dedupeKey = `${name.toLowerCase()}_${Math.round(lat * 1000)}_${Math.round(lon * 1000)}`;
-    if (seenKeys.has(dedupeKey)) continue;
-    seenKeys.add(dedupeKey);
-
-    const amenity = (tags.amenity || '').toLowerCase();
-    const healthcare = (tags.healthcare || '').toLowerCase();
-    const lowerName = name.toLowerCase();
-
-    // Differentiate clinics & local doctors from major hospitals
-    let category: SafeZoneCategory = 'hospital';
-    if (
-      amenity === 'clinic' ||
-      amenity === 'doctors' ||
-      healthcare === 'clinic' ||
-      healthcare === 'doctor' ||
-      lowerName.includes('clinic') ||
-      lowerName.includes('dispensary') ||
-      lowerName.includes('dr.') ||
-      lowerName.includes('dr ') ||
-      lowerName.includes('doctor') ||
-      lowerName.includes('polyclinic') ||
-      lowerName.includes('ayurvedic') ||
-      lowerName.includes('homeopathic') ||
-      lowerName.includes('dental')
-    ) {
-      category = 'clinic';
-    } else if (
-      amenity === 'police' ||
-      lowerName.includes('police') ||
-      lowerName.includes('chowki') ||
-      lowerName.includes('thana') ||
-      lowerName.includes('traffic post')
-    ) {
-      category = 'police';
-    } else if (
-      amenity === 'fire_station' ||
-      lowerName.includes('fire station') ||
-      lowerName.includes('fire brigade') ||
-      lowerName.includes('agnishaman')
-    ) {
-      category = 'fire_station';
-    } else if (
-      amenity === 'shelter' ||
-      amenity === 'community_centre' ||
-      lowerName.includes('shelter') ||
-      lowerName.includes('relief') ||
-      lowerName.includes('karyalaya') ||
-      lowerName.includes('sabhagruha') ||
-      lowerName.includes('community centre') ||
-      lowerName.includes('hall') ||
-      lowerName.includes('dharamshala') ||
-      lowerName.includes('ashram')
-    ) {
-      category = 'shelter';
-    } else {
-      category = 'hospital';
-    }
-
-    // Build real physical address from OpenStreetMap tags
-    const street = tags['addr:street'] || tags['addr:road'] || '';
-    const houseNum = tags['addr:housenumber'] || '';
-    const suburb = tags['addr:suburb'] || tags['addr:neighbourhood'] || '';
-    const district = tags['addr:district'] || tags['addr:city'] || userCoords.city || '';
-    const addrParts = [
-      houseNum ? `${houseNum} ${street}`.trim() : street,
-      suburb,
-      district,
-    ].filter(Boolean);
-
-    const address =
-      addrParts.length > 0
-        ? addrParts.join(', ')
-        : `${name}, ${userCoords.subLocality || userCoords.city || 'Emergency Safe Area'}`;
-
-    // Extract real telephone or emergency number
-    const rawPhone =
-      tags.phone ||
-      tags['contact:phone'] ||
-      tags['emergency:phone'] ||
-      tags['phone:emergency'] ||
-      '';
-    const cleanPhone = rawPhone.trim()
-      ? rawPhone.trim()
-      : getDefaultPhoneForCategory(category, userCoords.country);
-
-    const dist = calculateHaversineDistance(userCoords.latitude, userCoords.longitude, lat, lon);
-
-    parsed.push({
-      id: `osm-${category}-${el.type || 'n'}-${el.id || Math.random().toString(36).substring(2, 9)}`,
-      name,
-      category,
-      address,
-      phone: cleanPhone,
-      latitude: lat,
-      longitude: lon,
-      isOpen24Hours:
-        tags.opening_hours === '24/7' ||
-        category === 'hospital' ||
-        category === 'police' ||
-        category === 'fire_station',
-      verified: true,
-      distanceKm: dist,
-    });
+  if (
+    a === 'clinic' ||
+    a === 'doctors' ||
+    a === 'pharmacy' ||
+    h === 'clinic' ||
+    h === 'doctor' ||
+    h === 'pharmacy' ||
+    name.includes('clinic') ||
+    name.includes('dispensary') ||
+    name.includes('dr.') ||
+    name.includes('dr ') ||
+    name.includes('doctor') ||
+    name.includes('polyclinic') ||
+    name.includes('ayurvedic') ||
+    name.includes('homeopathic') ||
+    name.includes('medical store') ||
+    name.includes('aarogya') ||
+    name.includes('chemist') ||
+    name.includes('dental')
+  ) {
+    return 'clinic';
   }
 
-  return parsed;
+  if (
+    a === 'police' ||
+    name.includes('police') ||
+    name.includes('chowki') ||
+    name.includes('thana') ||
+    name.includes('outpost')
+  ) {
+    return 'police';
+  }
+
+  if (
+    a === 'fire_station' ||
+    name.includes('fire station') ||
+    name.includes('fire brigade') ||
+    name.includes('agnishaman')
+  ) {
+    return 'fire_station';
+  }
+
+  if (
+    a === 'shelter' ||
+    a === 'community_centre' ||
+    name.includes('shelter') ||
+    name.includes('relief') ||
+    name.includes('karyalaya') ||
+    name.includes('sabhagruha') ||
+    name.includes('community centre') ||
+    name.includes('dharamshala') ||
+    name.includes('hall') ||
+    name.includes('ashram')
+  ) {
+    return 'shelter';
+  }
+
+  return 'hospital';
 }
 
 /**
- * Queries Overpass API across multiple distributed mirrors
+ * 1. Live Overpass Engine (15km radius, multi-mirror)
  */
 async function fetchFromOverpass(coords: LocationCoords): Promise<SafeZone[]> {
-  const query = buildOverpassQuery(coords.latitude, coords.longitude, 10000);
+  const query = `[out:json][timeout:12];
+(
+  node["amenity"~"^(hospital|clinic|doctors|pharmacy|police|shelter|fire_station|community_centre)$"](around:15000,${coords.latitude},${coords.longitude});
+  node["healthcare"](around:15000,${coords.latitude},${coords.longitude});
+  way["amenity"~"^(hospital|clinic|doctors|pharmacy|police|shelter|fire_station|community_centre)$"](around:15000,${coords.latitude},${coords.longitude});
+  way["healthcare"](around:15000,${coords.latitude},${coords.longitude});
+);
+out center 60;`;
+
   const postData = 'data=' + encodeURIComponent(query);
 
   for (const ep of OVERPASS_ENDPOINTS) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 7500);
+      const timeoutId = setTimeout(() => controller.abort(), 9000);
 
       const res = await fetch(ep, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'GuardianApp/1.0 (Emergency Response & Safety)',
+          'User-Agent': 'GuardianApp/1.0 (Emergency Safe Zones)',
         },
         body: postData,
         signal: controller.signal,
@@ -224,14 +162,54 @@ async function fetchFromOverpass(coords: LocationCoords): Promise<SafeZone[]> {
       if (res.ok) {
         const data = await res.json();
         if (data && Array.isArray(data.elements) && data.elements.length > 0) {
-          const parsed = parseOverpassElements(data.elements, coords);
-          if (parsed.length >= 2) {
-            return parsed;
+          const results: SafeZone[] = [];
+          const seen = new Set<string>();
+
+          for (const el of data.elements) {
+            const tags = el.tags || {};
+            const rawName = tags.name || tags['name:en'] || '';
+            if (!rawName || rawName.trim().length < 2) continue;
+            const name = rawName.trim();
+
+            const lat = el.lat ?? el.center?.lat;
+            const lon = el.lon ?? el.center?.lon;
+            if (typeof lat !== 'number' || typeof lon !== 'number') continue;
+
+            const dedupe = `${name.toLowerCase()}_${Math.round(lat * 1000)}_${Math.round(lon * 1000)}`;
+            if (seen.has(dedupe)) continue;
+            seen.add(dedupe);
+
+            const category = classifyCategory(name, tags.amenity, tags.healthcare);
+            const street = tags['addr:street'] || tags['addr:road'] || '';
+            const suburb = tags['addr:suburb'] || tags['addr:neighbourhood'] || '';
+            const city = tags['addr:district'] || tags['addr:city'] || coords.city || '';
+            const addrParts = [street, suburb, city].filter(Boolean);
+            const address = addrParts.length > 0 ? addrParts.join(', ') : `${name}, ${coords.subLocality || coords.city || 'Local Area'}`;
+
+            const phone = tags.phone || tags['contact:phone'] || tags['emergency:phone'] || getDefaultPhoneForCategory(category, coords.country);
+            const dist = calculateHaversineDistance(coords.latitude, coords.longitude, lat, lon);
+
+            results.push({
+              id: `osm-${category}-${el.type || 'n'}-${el.id || Math.random().toString(36).substring(2, 8)}`,
+              name,
+              category,
+              address,
+              phone: phone.trim(),
+              latitude: lat,
+              longitude: lon,
+              isOpen24Hours: tags.opening_hours === '24/7' || category === 'hospital' || category === 'police',
+              verified: true,
+              distanceKm: dist,
+            });
+          }
+
+          if (results.length >= 2) {
+            return results;
           }
         }
       }
     } catch {
-      // Continue to next mirror endpoint
+      // Try next mirror
     }
   }
 
@@ -239,15 +217,82 @@ async function fetchFromOverpass(coords: LocationCoords): Promise<SafeZone[]> {
 }
 
 /**
- * Secondary fallback: Photon API (real OpenStreetMap geocoding)
+ * 2. Nominatim Emergency Geocoder (OpenStreetMap Foundation API)
+ */
+async function fetchFromNominatim(coords: LocationCoords): Promise<SafeZone[]> {
+  const queries = ['hospital', 'clinic', 'police', 'shelter'];
+  const results: SafeZone[] = [];
+  const seen = new Set<string>();
+
+  const box = `${coords.longitude - 0.15},${coords.latitude + 0.15},${coords.longitude + 0.15},${coords.latitude - 0.15}`;
+
+  await Promise.all(
+    queries.map(async (q) => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+          q
+        )}&format=json&bounded=1&viewbox=${box}&limit=10`;
+
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'GuardianSafetyApp/1.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (res.ok) {
+          const items = await res.json();
+          if (Array.isArray(items)) {
+            for (const item of items) {
+              const name = (item.name || item.display_name?.split(',')[0] || '').trim();
+              if (!name) continue;
+
+              const lat = parseFloat(item.lat);
+              const lon = parseFloat(item.lon);
+              if (isNaN(lat) || isNaN(lon)) continue;
+
+              const dedupe = `${name.toLowerCase()}_${Math.round(lat * 1000)}_${Math.round(lon * 1000)}`;
+              if (seen.has(dedupe)) continue;
+              seen.add(dedupe);
+
+              const category = classifyCategory(name, item.type, item.class);
+              const dist = calculateHaversineDistance(coords.latitude, coords.longitude, lat, lon);
+
+              results.push({
+                id: `nom-${category}-${item.place_id || Math.random().toString(36).substring(2, 8)}`,
+                name,
+                category,
+                address: item.display_name || `${name}, ${coords.city || 'Emergency Safe Area'}`,
+                phone: getDefaultPhoneForCategory(category, coords.country),
+                latitude: lat,
+                longitude: lon,
+                isOpen24Hours: true,
+                verified: true,
+                distanceKm: dist,
+              });
+            }
+          }
+        }
+      } catch {
+        // Tolerated
+      }
+    })
+  );
+
+  return results;
+}
+
+/**
+ * 3. Photon Geocoder (Komoot CDN)
  */
 async function fetchFromPhoton(coords: LocationCoords): Promise<SafeZone[]> {
-  const queries: { cat: SafeZoneCategory; q: string }[] = [
-    { cat: 'hospital', q: 'hospital' },
-    { cat: 'clinic', q: 'clinic doctor' },
-    { cat: 'police', q: 'police' },
-    { cat: 'shelter', q: 'community centre hall' },
-    { cat: 'fire_station', q: 'fire station' },
+  const queries = [
+    { q: 'hospital', cat: 'hospital' as SafeZoneCategory },
+    { q: 'clinic doctor', cat: 'clinic' as SafeZoneCategory },
+    { q: 'police', cat: 'police' as SafeZoneCategory },
+    { q: 'shelter community hall', cat: 'shelter' as SafeZoneCategory },
   ];
 
   const results: SafeZone[] = [];
@@ -258,7 +303,7 @@ async function fetchFromPhoton(coords: LocationCoords): Promise<SafeZone[]> {
         const timeoutId = setTimeout(() => controller.abort(), 4000);
         const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(
           item.q
-        )}&lat=${coords.latitude}&lon=${coords.longitude}&limit=5`;
+        )}&lat=${coords.latitude}&lon=${coords.longitude}&limit=8`;
         const res = await fetch(url, { signal: controller.signal });
         clearTimeout(timeoutId);
 
@@ -272,15 +317,12 @@ async function fetchFromPhoton(coords: LocationCoords): Promise<SafeZone[]> {
                 const lon = parseFloat(coordsArr[0]);
                 const lat = parseFloat(coordsArr[1]);
                 const dist = calculateHaversineDistance(coords.latitude, coords.longitude, lat, lon);
-                if (dist <= 30) {
+                if (dist <= 25) {
                   results.push({
                     id: `photon-${item.cat}-${props.osm_id || Math.random().toString(36).substring(2, 7)}`,
                     name: props.name.trim(),
-                    category: item.cat,
-                    address:
-                      [props.street, props.city || coords.city, props.state || coords.region]
-                        .filter(Boolean)
-                        .join(', ') || props.name,
+                    category: classifyCategory(props.name, props.osm_value),
+                    address: [props.street, props.city || coords.city, props.state || coords.region].filter(Boolean).join(', ') || props.name,
                     phone: getDefaultPhoneForCategory(item.cat, coords.country),
                     latitude: lat,
                     longitude: lon,
@@ -302,106 +344,9 @@ async function fetchFromPhoton(coords: LocationCoords): Promise<SafeZone[]> {
   return results;
 }
 
-/**
- * Verified emergency registry fallback when device is 100% offline on first launch with no cache.
- * Contains genuine medical and public safety facilities with official emergency contact helplines.
- */
-function getVerifiedOfflineEmergencyZones(coords: LocationCoords): SafeZone[] {
-  const locality = coords.subLocality || coords.city || 'Central Zone';
-  const region = coords.region ? `, ${coords.region}` : '';
-
-  return [
-    {
-      id: 'offline-hosp-1',
-      name: 'District Government Civil Hospital & Emergency Trauma',
-      category: 'hospital',
-      address: `Hospital Road, ${locality}${region}`,
-      phone: '108',
-      latitude: coords.latitude + 0.0055,
-      longitude: coords.longitude + 0.0042,
-      isOpen24Hours: true,
-      verified: true,
-      distanceKm: 0.65,
-    },
-    {
-      id: 'offline-clinic-1',
-      name: 'LifeLine Urgent Care & Family Health Clinic',
-      category: 'clinic',
-      address: `Station Road, Market Square, ${locality}${region}`,
-      phone: '108',
-      latitude: coords.latitude + 0.0028,
-      longitude: coords.longitude - 0.0031,
-      isOpen24Hours: true,
-      verified: true,
-      distanceKm: 0.42,
-    },
-    {
-      id: 'offline-pol-1',
-      name: 'Central Police Station & Emergency Chowki',
-      category: 'police',
-      address: `Police Station Chowk, ${locality}${region}`,
-      phone: '112',
-      latitude: coords.latitude - 0.0042,
-      longitude: coords.longitude + 0.0035,
-      isOpen24Hours: true,
-      verified: true,
-      distanceKm: 0.58,
-    },
-    {
-      id: 'offline-shelt-1',
-      name: 'Community Disaster Relief Center & Shelter Haven',
-      category: 'shelter',
-      address: `Civic Center Complex, ${locality}${region}`,
-      phone: '1077',
-      latitude: coords.latitude + 0.0078,
-      longitude: coords.longitude - 0.0062,
-      isOpen24Hours: true,
-      verified: true,
-      distanceKm: 1.1,
-    },
-    {
-      id: 'offline-fire-1',
-      name: 'Municipal Fire & Disaster Rescue Command',
-      category: 'fire_station',
-      address: `Fire Brigade Bypass, ${locality}${region}`,
-      phone: '101',
-      latitude: coords.latitude - 0.0068,
-      longitude: coords.longitude - 0.0045,
-      isOpen24Hours: true,
-      verified: true,
-      distanceKm: 0.95,
-    },
-    {
-      id: 'offline-clinic-2',
-      name: 'Apex Polyclinic & Daycare Medical Centre',
-      category: 'clinic',
-      address: `Main Avenue, Near Sector Post, ${locality}${region}`,
-      phone: '108',
-      latitude: coords.latitude - 0.0032,
-      longitude: coords.longitude + 0.0064,
-      isOpen24Hours: false,
-      verified: true,
-      distanceKm: 0.8,
-    },
-    {
-      id: 'offline-hosp-2',
-      name: 'Sassoon & General Medical College Emergency Dept',
-      category: 'hospital',
-      address: `General Hospital Campus, ${locality}${region}`,
-      phone: '108',
-      latitude: coords.latitude + 0.0115,
-      longitude: coords.longitude + 0.0084,
-      isOpen24Hours: true,
-      verified: true,
-      distanceKm: 1.6,
-    },
-  ];
-}
-
 export const SafeZoneService = {
   /**
-   * Fetch real-time safe zones near user location using OpenStreetMap Overpass API,
-   * with automatic grid-based offline caching and verified emergency fallback
+   * Fetch real-time safe zones near user location using multi-source OpenStreetMap engines
    */
   async getSafeZones(
     userLocation?: LocationCoords,
@@ -421,7 +366,7 @@ export const SafeZoneService = {
 
     let zones: SafeZone[] = [];
 
-    // 1. Try reading grid-based cache for instant 0ms retrieval
+    // 1. Try reading grid cache for 0ms instant display
     try {
       const cached = await StorageService.getItem(cacheKey);
       if (cached) {
@@ -431,10 +376,10 @@ export const SafeZoneService = {
         }
       }
     } catch {
-      // Cache read error ignored
+      // Ignored
     }
 
-    // 2. If no cache or cache is empty, query live Overpass engine
+    // 2. Query Live Overpass Engine (15km radius)
     if (zones.length === 0) {
       try {
         const overpassZones = await fetchFromOverpass(coords);
@@ -442,30 +387,38 @@ export const SafeZoneService = {
           zones = overpassZones;
           await StorageService.setItem(cacheKey, JSON.stringify(zones));
         }
-      } catch (err) {
-        console.warn('Overpass safe zone query failed:', err);
+      } catch {
+        // Continue
       }
     }
 
-    // 3. If Overpass failed, try Photon OpenStreetMap geocoder
-    if (zones.length === 0) {
+    // 3. If Overpass had few results, try Nominatim Emergency Engine
+    if (zones.length < 2) {
+      try {
+        const nomZones = await fetchFromNominatim(coords);
+        if (nomZones.length >= 2) {
+          zones = nomZones;
+          await StorageService.setItem(cacheKey, JSON.stringify(zones));
+        }
+      } catch {
+        // Continue
+      }
+    }
+
+    // 4. If still few results, try Photon API
+    if (zones.length < 2) {
       try {
         const photonZones = await fetchFromPhoton(coords);
         if (photonZones.length >= 2) {
           zones = photonZones;
           await StorageService.setItem(cacheKey, JSON.stringify(zones));
         }
-      } catch (err) {
-        console.warn('Photon fallback safe zone query failed:', err);
+      } catch {
+        // Continue
       }
     }
 
-    // 4. If completely offline on first launch, use verified real emergency registry
-    if (zones.length === 0) {
-      zones = getVerifiedOfflineEmergencyZones(coords);
-    }
-
-    // 5. Merge custom user-added safe shelters
+    // 5. Merge custom user-pinned safe havens
     const customShelters = await this.getCustomShelters();
     let allZones = [...customShelters, ...zones];
 
@@ -474,7 +427,7 @@ export const SafeZoneService = {
       allZones = allZones.filter((z) => z.category === category);
     }
 
-    // 7. Compute distance relative to user coordinates and sort nearest first
+    // 7. Calculate real GPS distance
     allZones = allZones.map((zone) => ({
       ...zone,
       distanceKm: calculateHaversineDistance(
@@ -571,32 +524,7 @@ export const SafeZoneService = {
               const state = props.state || '';
               const address = [street, city, state].filter(Boolean).join(', ') || name;
 
-              const lowerName = (name + ' ' + (props.osm_value || '')).toLowerCase();
-              let category: SafeZoneCategory = 'hospital';
-              if (
-                lowerName.includes('clinic') ||
-                lowerName.includes('doctor') ||
-                lowerName.includes('dispensary') ||
-                lowerName.includes('polyclinic') ||
-                lowerName.includes('dental')
-              ) {
-                category = 'clinic';
-              } else if (
-                lowerName.includes('police') ||
-                lowerName.includes('chowki') ||
-                lowerName.includes('thana')
-              ) {
-                category = 'police';
-              } else if (lowerName.includes('fire') || lowerName.includes('brigade')) {
-                category = 'fire_station';
-              } else if (
-                lowerName.includes('shelter') ||
-                lowerName.includes('community') ||
-                lowerName.includes('hall') ||
-                lowerName.includes('relief')
-              ) {
-                category = 'shelter';
-              }
+              const category = classifyCategory(name, props.osm_value, props.osm_key);
 
               results.push({
                 id: `search-${index}-${Date.now()}`,
@@ -619,8 +547,8 @@ export const SafeZoneService = {
           }
         }
       }
-    } catch (e) {
-      console.warn('Search places failed:', e);
+    } catch {
+      // Ignored
     }
 
     const baseZones = await this.getSafeZones(userLocation, 'all');
@@ -630,53 +558,97 @@ export const SafeZoneService = {
     );
   },
 
+  /**
+   * 🚗 Launches Google Maps directly in turn-by-turn driving navigation mode
+   * (matching the screenshot provided by user)
+   */
   async openNavigation(zone: SafeZone, userLocation?: LocationCoords) {
-    const latLng = `${zone.latitude},${zone.longitude}`;
+    const lat = zone.latitude;
+    const lon = zone.longitude;
     const label = encodeURIComponent(zone.name);
 
     let url: string;
     if (Platform.OS === 'android') {
       if (userLocation) {
-        url = `https://www.google.com/maps/dir/?api=1&origin=${userLocation.latitude},${userLocation.longitude}&destination=${latLng}&travelmode=driving`;
+        // Direct driving navigation intent from user's live coordinates to safe zone
+        url = `google.navigation:q=${lat},${lon}&mode=d`;
       } else {
-        url = `geo:0,0?q=${latLng}(${label})`;
+        url = `geo:${lat},${lon}?q=${lat},${lon}(${label})`;
       }
     } else if (Platform.OS === 'ios') {
-      url = `maps:0,0?q=${label}@${latLng}`;
+      url = `maps:0,0?q=${label}@${lat},${lon}`;
     } else {
-      url = `https://www.google.com/maps/dir/?api=1&destination=${latLng}`;
+      url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lon}`;
     }
 
     try {
       const supported = await Linking.canOpenURL(url);
       if (supported) {
         await Linking.openURL(url);
-      } else {
-        const webUrl = `https://www.google.com/maps/dir/?api=1&destination=${latLng}`;
-        await Linking.openURL(webUrl);
+        return;
       }
     } catch {
-      const webUrl = `https://maps.google.com/?q=${zone.latitude},${zone.longitude}`;
-      await Linking.openURL(webUrl);
+      // Fallback to web directions
     }
+
+    const webUrl = userLocation
+      ? `https://www.google.com/maps/dir/?api=1&origin=${userLocation.latitude},${userLocation.longitude}&destination=${lat},${lon}&travelmode=driving`
+      : `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+    await Linking.openURL(webUrl).catch(() => {});
   },
 
-  async openAreaInGoogleMaps(coords?: LocationCoords) {
+  /**
+   * 🌐 Launches Google Maps to search real facilities near user's GPS coordinates
+   */
+  async openGoogleMapsSearch(category: SafeZoneCategory | 'all' = 'hospital', coords?: LocationCoords) {
     if (!coords) return;
-    const url =
+    const queryMap: Record<string, string> = {
+      hospital: 'emergency+hospitals',
+      clinic: 'clinics+and+doctors',
+      police: 'police+stations',
+      shelter: 'emergency+shelters',
+      fire_station: 'fire+station',
+      all: 'emergency+hospitals+and+clinics',
+    };
+
+    const q = queryMap[category] || 'emergency+hospitals';
+    let url =
       Platform.OS === 'android'
-        ? `geo:${coords.latitude},${coords.longitude}?q=emergency+hospitals+shelters`
-        : `https://www.google.com/maps/search/emergency+hospitals+shelters/@${coords.latitude},${coords.longitude},15z`;
+        ? `geo:${coords.latitude},${coords.longitude}?q=${q}`
+        : `https://www.google.com/maps/search/${q}/@${coords.latitude},${coords.longitude},14z`;
+
     try {
       const supported = await Linking.canOpenURL(url);
       if (supported) {
         await Linking.openURL(url);
-      } else {
-        await Linking.openURL(`https://www.google.com/maps/@${coords.latitude},${coords.longitude},15z`);
+        return;
       }
     } catch {
-      await Linking.openURL(`https://www.google.com/maps/@${coords.latitude},${coords.longitude},15z`);
+      // Fallback
     }
+
+    const webUrl = `https://www.google.com/maps/search/${q}/@${coords.latitude},${coords.longitude},14z`;
+    await Linking.openURL(webUrl).catch(() => {});
+  },
+
+  /**
+   * 🗺️ Opens the user's current GPS location in Google Maps
+   */
+  async openAreaInGoogleMaps(coords: LocationCoords) {
+    const url =
+      Platform.OS === 'android'
+        ? `geo:${coords.latitude},${coords.longitude}?z=15`
+        : `https://www.google.com/maps/@${coords.latitude},${coords.longitude},15z`;
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+        return;
+      }
+    } catch {
+      // Fallback
+    }
+    await Linking.openURL(`https://www.google.com/maps/@${coords.latitude},${coords.longitude},15z`).catch(() => {});
   },
 
   async callSafeZone(phoneNumber: string) {
@@ -687,8 +659,8 @@ export const SafeZoneService = {
       if (supported) {
         await Linking.openURL(url);
       }
-    } catch (err) {
-      console.warn('Call safe zone error:', err);
+    } catch {
+      // Ignored
     }
   },
 };

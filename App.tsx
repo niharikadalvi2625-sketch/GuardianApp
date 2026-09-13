@@ -1,5 +1,5 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, ActivityIndicator } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, RouteProp } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -10,12 +10,19 @@ import SafeZonesScreen from './src/screens/SafeZonesScreen';
 import ReportsScreen from './src/screens/ReportsScreen';
 import ChatbotScreen from './src/screens/ChatbotScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import WelcomeAuthScreen from './src/screens/WelcomeAuthScreen';
+import LocationPermissionScreen from './src/screens/LocationPermissionScreen';
+
+import { AuthService } from './src/services/authService';
+import { LocationService } from './src/services/locationService';
+import { AuthUser } from './src/types';
 
 const THEME = {
   primary: '#E63946',
   textLight: '#94A3B8',
   cardBg: '#FFFFFF',
   border: '#E2E8F0',
+  darkBg: '#0F172A',
 };
 
 const TabIcon = ({ name, focused }: { name: string; focused: boolean }) => {
@@ -39,6 +46,83 @@ const TabIcon = ({ name, focused }: { name: string; focused: boolean }) => {
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
 export default function App() {
+  const [appState, setAppState] = useState<'loading' | 'auth' | 'permission' | 'main'>('loading');
+
+  useEffect(() => {
+    checkInitialSession();
+
+    const unsub = AuthService.onAuthStateChanged(async (user) => {
+      if (!user) {
+        setAppState('auth');
+      }
+    });
+
+    return () => unsub();
+  }, []);
+
+  const checkInitialSession = async () => {
+    try {
+      const user = await AuthService.getCurrentUser();
+      if (!user) {
+        setAppState('auth');
+        return;
+      }
+
+      // Check if location permission is already granted without prompting
+      const hasPermission = await LocationService.checkPermission();
+      if (!hasPermission) {
+        setAppState('permission');
+      } else {
+        setAppState('main');
+      }
+    } catch {
+      setAppState('auth');
+    }
+  };
+
+  const handleLoginSuccess = async (_user: AuthUser) => {
+    // Check permission after successful login
+    const hasPermission = await LocationService.checkPermission();
+    if (!hasPermission) {
+      setAppState('permission');
+    } else {
+      setAppState('main');
+    }
+  };
+
+  const handlePermissionCompleted = () => {
+    setAppState('main');
+  };
+
+  if (appState === 'loading') {
+    return (
+      <SafeAreaProvider>
+        <View style={styles.loadingScreen}>
+          <ActivityIndicator size="large" color={THEME.primary} />
+        </View>
+      </SafeAreaProvider>
+    );
+  }
+
+  if (appState === 'auth') {
+    return (
+      <SafeAreaProvider>
+        <WelcomeAuthScreen onLoginSuccess={handleLoginSuccess} />
+      </SafeAreaProvider>
+    );
+  }
+
+  if (appState === 'permission') {
+    return (
+      <SafeAreaProvider>
+        <LocationPermissionScreen
+          onPermissionGranted={handlePermissionCompleted}
+          onSkip={handlePermissionCompleted}
+        />
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <NavigationContainer>
@@ -96,6 +180,12 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  loadingScreen: {
+    flex: 1,
+    backgroundColor: THEME.darkBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   tabBar: {
     backgroundColor: THEME.cardBg,
     borderTopWidth: 1,
@@ -117,4 +207,3 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
-

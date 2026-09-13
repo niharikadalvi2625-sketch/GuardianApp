@@ -123,7 +123,6 @@ export default function ReportsScreen() {
   const fetchCurrentCoords = async () => {
     setFetchingGps(true);
     try {
-      await LocationService.requestPermission();
       const coords = await LocationService.getCurrentLocation();
       setUserLocation(coords);
     } catch {
