@@ -11,6 +11,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AuthService } from '../services/authService';
@@ -156,9 +157,11 @@ export default function WelcomeAuthScreen({ onLoginSuccess }: WelcomeAuthScreenP
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {/* Header & Logo */}
           <View style={styles.logoSection}>
-            <View style={styles.shieldHalo}>
-              <Text style={styles.shieldEmoji}>🛡️</Text>
-            </View>
+            <Image
+              source={require('../assets/logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
             <Text style={styles.brandTitle}>GUARDIAN</Text>
             <Text style={styles.brandTagline}>WOMEN & DISASTER SAFETY NETWORK</Text>
           </View>
@@ -423,19 +426,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 24,
   },
-  shieldHalo: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: 'rgba(230, 57, 70, 0.16)',
-    borderWidth: 2,
-    borderColor: 'rgba(230, 57, 70, 0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
+  logoImage: {
+    width: 84,
+    height: 84,
+    borderRadius: 20,
     marginBottom: 14,
-  },
-  shieldEmoji: {
-    fontSize: 38,
+    shadowColor: '#E63946',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 12,
+    elevation: 8,
   },
   brandTitle: {
     fontSize: 26,

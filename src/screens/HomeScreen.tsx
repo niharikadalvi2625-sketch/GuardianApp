@@ -12,6 +12,7 @@ import {
   Alert,
   Modal,
   TextInput,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { HomeScreenNavigationProp } from '../types/navigation';
@@ -256,11 +257,18 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       >
         {/* Top Header: Greeting + Status */}
         <View style={styles.header}>
-          <View style={styles.headerTextCol}>
-            <Text style={styles.headerGreeting}>Stay Protected,</Text>
-            <Text style={styles.headerUserName}>
-              {currentUser?.name || (profile ? profile.name : 'Guardian User')}
-            </Text>
+          <View style={styles.headerUserRow}>
+            <Image
+              source={require('../assets/logo.png')}
+              style={styles.headerLogoBadge}
+              resizeMode="contain"
+            />
+            <View style={styles.headerTextCol}>
+              <Text style={styles.headerGreeting}>Stay Protected,</Text>
+              <Text style={styles.headerUserName}>
+                {currentUser?.name || (profile ? profile.name : 'Guardian User')}
+              </Text>
+            </View>
           </View>
           <View style={styles.headerRightRow}>
             {currentUser && currentUser.provider !== 'guest' ? (
@@ -820,6 +828,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+  },
+  headerUserRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 10,
+  },
+  headerLogoBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    shadowColor: '#E63946',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   headerTextCol: {
     flex: 1,
