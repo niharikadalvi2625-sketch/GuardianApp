@@ -439,6 +439,24 @@ export const SafeZoneService = {
     }
   },
 
+  async openAreaInGoogleMaps(coords?: LocationCoords) {
+    if (!coords) return;
+    const url =
+      Platform.OS === 'android'
+        ? `geo:${coords.latitude},${coords.longitude}?q=emergency+hospitals+shelters`
+        : `https://www.google.com/maps/search/emergency+hospitals+shelters/@${coords.latitude},${coords.longitude},15z`;
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        await Linking.openURL(`https://www.google.com/maps/@${coords.latitude},${coords.longitude},15z`);
+      }
+    } catch {
+      await Linking.openURL(`https://www.google.com/maps/@${coords.latitude},${coords.longitude},15z`);
+    }
+  },
+
   async callSafeZone(phoneNumber: string) {
     const cleanPhone = phoneNumber.replace(/[^0-9+]/g, '');
     const url = `tel:${cleanPhone}`;

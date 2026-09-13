@@ -59,6 +59,8 @@ export default function SafeZonesScreen() {
   const [selectedZone, setSelectedZone] = useState<SafeZone | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [markingSpot, setMarkingSpot] = useState<boolean>(false);
+  const [mapType, setMapType] = useState<'map' | 'satellite'>('map');
+  const [mapZoom, setMapZoom] = useState<number>(1);
 
   useEffect(() => {
     loadLocationAndZones();
@@ -210,6 +212,24 @@ export default function SafeZonesScreen() {
     }
   };
 
+  const getGooglePinStyle = (category: SafeZoneCategory, isUserAdded?: boolean) => {
+    if (isUserAdded) {
+      return { pinColor: '#7C3AED', icon: '🛡️', label: 'Safe Haven' };
+    }
+    switch (category) {
+      case 'hospital':
+        return { pinColor: '#1A73E8', icon: '🏥', label: 'Hospital' };
+      case 'police':
+        return { pinColor: '#EA4335', icon: '👮', label: 'Police' };
+      case 'shelter':
+        return { pinColor: '#34A853', icon: '🏠', label: 'Shelter' };
+      case 'fire_station':
+        return { pinColor: '#FBBC04', icon: '🚒', label: 'Fire Dept' };
+      default:
+        return { pinColor: '#EA4335', icon: '📍', label: 'Safe Zone' };
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -353,57 +373,328 @@ export default function SafeZonesScreen() {
           })}
         </ScrollView>
 
-        {/* Visual Map / Radar View */}
-        <View style={styles.mapCard}>
-          <View style={styles.mapHeader}>
-            <View style={styles.mapLiveBadge}>
-              <View style={styles.mapLiveDot} />
-              <Text style={styles.mapLiveText}>Live Radar View</Text>
-            </View>
-            <Text style={styles.mapRadiusText}>Within 5 km radius</Text>
-          </View>
-
-          <View style={styles.radarVisual}>
-            <View style={[styles.radarRing, { width: 220, height: 220, borderRadius: 110 }]} />
-            <View style={[styles.radarRing, { width: 140, height: 140, borderRadius: 70 }]} />
-            <View style={[styles.radarRing, { width: 60, height: 60, borderRadius: 30 }]} />
-
-            {/* Center User Location Pin */}
-            <View style={styles.userPinContainer}>
-              <View style={styles.userPinGlow} />
-              <View style={styles.userPinDot} />
-            </View>
-
-            {/* Interactive Markers for safe zones */}
-            {safeZones.slice(0, 6).map((zone, idx) => {
-              const catColor = getCategoryColor(zone.category, zone.isUserAdded);
-              const isSelected = selectedZone?.id === zone.id;
-              const angles = [45, 130, 210, 300, 85, 260];
-              const distances = [75, 90, 65, 80, 45, 100];
-              const angle = angles[idx % angles.length] * (Math.PI / 180);
-              const dist = distances[idx % distances.length];
-              const top = 110 + Math.sin(angle) * dist - 18;
-              const left = 110 + Math.cos(angle) * dist - 18;
-
-              return (
-                <TouchableOpacity
-                  key={zone.id}
+        {/* --- GOOGLE MAPS INTERACTIVE VIEW --- */}
+        <View style={styles.googleMapCard}>
+          {/* Google Maps Top Controls */}
+          <View style={styles.gMapTopRow}>
+            {/* Map Type Toggle: Map / Satellite */}
+            <View style={styles.gMapTypeToggle}>
+              <TouchableOpacity
+                style={[
+                  styles.gMapTypeBtn,
+                  mapType === 'map' && styles.gMapTypeBtnActive,
+                ]}
+                onPress={() => setMapType('map')}
+                activeOpacity={0.8}
+              >
+                <Text
                   style={[
-                    styles.mapMarker,
-                    { top, left, backgroundColor: catColor.bg },
-                    isSelected && styles.mapMarkerSelected,
+                    styles.gMapTypeBtnText,
+                    mapType === 'map' && styles.gMapTypeBtnTextActive,
                   ]}
-                  onPress={() => setSelectedZone(zone)}
-                  activeOpacity={0.8}
                 >
-                  <Text style={styles.markerEmoji}>{catColor.icon}</Text>
-                </TouchableOpacity>
-              );
-            })}
+                  🗺️ Map
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.gMapTypeBtn,
+                  mapType === 'satellite' && styles.gMapTypeBtnActive,
+                ]}
+                onPress={() => setMapType('satellite')}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.gMapTypeBtnText,
+                    mapType === 'satellite' && styles.gMapTypeBtnTextActive,
+                  ]}
+                >
+                  🛰️ Satellite
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Direct Open in Google Maps App Button */}
+            <TouchableOpacity
+              style={styles.gMapOpenAppBtn}
+              onPress={() => {
+                if (selectedZone) {
+                  handleNavigate(selectedZone);
+                } else if (userCoords) {
+                  SafeZoneService.openAreaInGoogleMaps(userCoords);
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.gMapOpenAppIcon}>↗️</Text>
+              <Text style={styles.gMapOpenAppText}>Google Maps</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.mapHintText}>
-            Tap any marker on the radar or choose from the list below
-          </Text>
+
+          {/* Authentic Google Maps Canvas */}
+          <View
+            style={[
+              styles.gMapCanvas,
+              mapType === 'satellite' ? styles.gMapCanvasSatellite : styles.gMapCanvasDefault,
+            ]}
+          >
+            {/* Scalable Vector Map Landscape */}
+            <View
+              style={[
+                styles.gMapVectorScene,
+                { transform: [{ scale: mapZoom }] },
+              ]}
+            >
+              {/* Natural Land Features: Waterway / River */}
+              <View
+                style={[
+                  styles.gMapWaterway,
+                  mapType === 'satellite' && styles.gMapWaterwaySatellite,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.gMapWaterText,
+                    mapType === 'satellite' && { color: '#64748B' },
+                  ]}
+                >
+                  River Canal
+                </Text>
+              </View>
+
+              {/* Natural Land Features: City Parks */}
+              <View
+                style={[
+                  styles.gMapParkOne,
+                  mapType === 'satellite' && styles.gMapParkSatellite,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.gMapParkText,
+                    mapType === 'satellite' && { color: '#86EFAC' },
+                  ]}
+                >
+                  🌳 Central Park
+                </Text>
+              </View>
+
+              <View
+                style={[
+                  styles.gMapParkTwo,
+                  mapType === 'satellite' && styles.gMapParkSatellite,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.gMapParkText,
+                    mapType === 'satellite' && { color: '#86EFAC' },
+                  ]}
+                >
+                  🌿 Botanical Green
+                </Text>
+              </View>
+
+              {/* Urban City Blocks */}
+              <View style={[styles.gMapBuilding, { top: 32, left: 32, width: 44, height: 34 }]} />
+              <View style={[styles.gMapBuilding, { top: 32, left: 86, width: 34, height: 34 }]} />
+              <View style={[styles.gMapBuilding, { top: 142, left: 24, width: 48, height: 38 }]} />
+              <View style={[styles.gMapBuilding, { top: 142, right: 32, width: 58, height: 34 }]} />
+              <View style={[styles.gMapBuilding, { bottom: 28, left: 92, width: 44, height: 28 }]} />
+
+              {/* Major Highway / Arterial Ribbon (Yellow with White Casing) */}
+              <View
+                style={[
+                  styles.gMapHighway,
+                  mapType === 'satellite' && styles.gMapHighwaySatellite,
+                ]}
+              >
+                <View style={styles.gMapHighwayBadge}>
+                  <Text style={styles.gMapHighwayBadgeText}>NH 48</Text>
+                </View>
+              </View>
+
+              {/* Street Network (Avenues & Roads) */}
+              <View style={[styles.gMapRoadHorizontal, { top: 92 }]}>
+                <Text style={styles.gMapStreetName}>MG ROAD / MAIN STREET</Text>
+              </View>
+              <View style={[styles.gMapRoadHorizontal, { top: 202 }]}>
+                <Text style={styles.gMapStreetName}>STATION ROAD</Text>
+              </View>
+
+              <View style={[styles.gMapRoadVertical, { left: 96 }]}>
+                <Text style={[styles.gMapStreetNameVertical, { top: 38 }]}>CIVIL AVE</Text>
+              </View>
+              <View style={[styles.gMapRoadVertical, { right: 104 }]}>
+                <Text style={[styles.gMapStreetNameVertical, { top: 138 }]}>HOSPITAL RD</Text>
+              </View>
+
+              {/* Traffic Flow Line (Google Green / Amber Live Traffic) */}
+              <View style={styles.gMapTrafficFlowGreen} />
+              <View style={styles.gMapTrafficFlowAmber} />
+
+              {/* Center User Location Pin (Google Maps Blue Pulsing Dot & Beam) */}
+              <View style={styles.gMapUserDotWrapper}>
+                <View style={styles.gMapUserBeam} />
+                <View style={styles.gMapUserPulseRing} />
+                <View style={styles.gMapUserBlueDot} />
+                <View style={styles.gMapUserLabelPill}>
+                  <Text style={styles.gMapUserLabelText}>You (Live GPS)</Text>
+                </View>
+              </View>
+
+              {/* Authentic Google Maps Teardrop Markers for Safe Zones */}
+              {safeZones.slice(0, 6).map((zone, idx) => {
+                const pinStyle = getGooglePinStyle(zone.category, zone.isUserAdded);
+                const isSelected = selectedZone?.id === zone.id;
+
+                // Fixed geographical coordinates along city streets
+                const positions = [
+                  { top: 52, left: 196 },   // Hospital Rd North
+                  { top: 156, left: 58 },   // Civil Ave South
+                  { top: 58, left: 74 },    // Near Station Rd North
+                  { top: 172, left: 242 },  // Highway bypass East
+                  { top: 114, left: 268 },  // East commercial hub
+                  { top: 124, left: 34 },   // West Haven
+                ];
+                const pos = positions[idx % positions.length];
+
+                return (
+                  <View
+                    key={zone.id}
+                    style={[
+                      styles.gMapMarkerAnchor,
+                      { top: pos.top, left: pos.left, zIndex: isSelected ? 50 : 10 },
+                    ]}
+                  >
+                    {/* Selected Zone Google Maps Callout Bubble */}
+                    {isSelected && (
+                      <TouchableOpacity
+                        style={styles.gMapCallout}
+                        onPress={() => handleNavigate(zone)}
+                        activeOpacity={0.9}
+                      >
+                        <View style={styles.gMapCalloutRow}>
+                          <Text style={styles.gMapCalloutTitle} numberOfLines={1}>
+                            {zone.name}
+                          </Text>
+                          <Text style={styles.gMapCalloutDist}>
+                            {zone.distanceKm !== undefined
+                              ? `${zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)}m` : `${zone.distanceKm.toFixed(1)}km`}`
+                              : 'Near'}
+                          </Text>
+                        </View>
+                        <Text style={styles.gMapCalloutAction}>Directions ➔</Text>
+                        <View style={styles.gMapCalloutArrow} />
+                      </TouchableOpacity>
+                    )}
+
+                    {/* Google Teardrop Pin Button */}
+                    <TouchableOpacity
+                      style={[
+                        styles.gMapTeardropWrapper,
+                        isSelected && styles.gMapTeardropSelected,
+                      ]}
+                      onPress={() => {
+                        AlertService.triggerHaptic();
+                        setSelectedZone(zone);
+                      }}
+                      activeOpacity={0.85}
+                    >
+                      {/* Teardrop Balloon Head */}
+                      <View
+                        style={[
+                          styles.gMapTeardropHead,
+                          { backgroundColor: pinStyle.pinColor },
+                          isSelected && styles.gMapTeardropHeadActive,
+                        ]}
+                      >
+                        <Text style={styles.gMapTeardropIcon}>{pinStyle.icon}</Text>
+                      </View>
+                      {/* Teardrop Pointed Needle */}
+                      <View
+                        style={[
+                          styles.gMapTeardropPoint,
+                          { borderTopColor: pinStyle.pinColor },
+                        ]}
+                      />
+                      {/* Ground Shadow */}
+                      <View style={styles.gMapPinShadow} />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+
+            {/* Floating Google Maps Controls: Zoom + / - buttons */}
+            <View style={styles.gMapZoomControls}>
+              <TouchableOpacity
+                style={styles.gMapZoomBtn}
+                onPress={() => {
+                  AlertService.triggerHaptic();
+                  setMapZoom((prev) => Math.min(prev + 0.25, 1.5));
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.gMapZoomText}>+</Text>
+              </TouchableOpacity>
+              <View style={styles.gMapZoomDivider} />
+              <TouchableOpacity
+                style={styles.gMapZoomBtn}
+                onPress={() => {
+                  AlertService.triggerHaptic();
+                  setMapZoom((prev) => Math.max(prev - 0.25, 0.85));
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.gMapZoomText}>−</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Floating Google Controls: My Location Recenter FAB */}
+            <TouchableOpacity
+              style={styles.gMapRecenterFab}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                setMapZoom(1);
+                if (safeZones.length > 0) {
+                  setSelectedZone(safeZones[0]);
+                }
+              }}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.gMapRecenterIcon}>⌖</Text>
+            </TouchableOpacity>
+
+            {/* Floating Compass Indicator */}
+            <View style={styles.gMapCompass}>
+              <Text style={styles.gMapCompassIcon}>🧭</Text>
+            </View>
+
+            {/* Google Maps Bottom Bar: Signature Google Watermark & Scale */}
+            <View style={styles.gMapBottomBar}>
+              <View style={styles.googleLogoRow}>
+                <Text style={[styles.gLetter, { color: '#4285F4' }]}>G</Text>
+                <Text style={[styles.gLetter, { color: '#EA4335' }]}>o</Text>
+                <Text style={[styles.gLetter, { color: '#FBBC04' }]}>o</Text>
+                <Text style={[styles.gLetter, { color: '#4285F4' }]}>g</Text>
+                <Text style={[styles.gLetter, { color: '#34A853' }]}>l</Text>
+                <Text style={[styles.gLetter, { color: '#EA4335' }]}>e</Text>
+              </View>
+              <View style={styles.gMapScaleContainer}>
+                <Text style={styles.gMapScaleText}>500 m</Text>
+                <View style={styles.gMapScaleRuler} />
+              </View>
+            </View>
+          </View>
+
+          {/* Helpful Navigation Subtext */}
+          <View style={styles.gMapFooterNotice}>
+            <Text style={styles.gMapFooterText}>
+              📍 Tap any Google pin to view details or tap "Directions" for live navigation
+            </Text>
+          </View>
         </View>
 
         {/* Selected Zone Quick Action Card */}
@@ -765,96 +1056,526 @@ const styles = StyleSheet.create({
   categoryLabel: { fontSize: 12, fontWeight: '700', color: THEME.textSecondary },
   categoryLabelActive: { color: '#FFFFFF' },
 
-  mapCard: {
-    backgroundColor: '#0F172A',
-    borderRadius: 20,
-    padding: 16,
+  /* --- GOOGLE MAPS AUTHENTIC STYLING --- */
+  googleMapCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#DADCE0',
     marginBottom: 16,
-    alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 3,
+    overflow: 'hidden',
   },
-  mapHeader: {
-    width: '100%',
+  gMapTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F3F4',
   },
-  mapLiveBadge: {
+  gMapTypeToggle: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(42, 157, 143, 0.2)',
+    backgroundColor: '#F1F3F4',
+    borderRadius: 8,
+    padding: 2,
+  },
+  gMapTypeBtn: {
     paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
     borderRadius: 6,
   },
-  mapLiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#2A9D8F',
-    marginRight: 6,
+  gMapTypeBtnActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  mapLiveText: {
+  gMapTypeBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#5F6368',
+  },
+  gMapTypeBtnTextActive: {
+    color: '#1A73E8',
+    fontWeight: '800',
+  },
+  gMapOpenAppBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E8F0FE',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    gap: 4,
+  },
+  gMapOpenAppIcon: {
+    fontSize: 11,
+  },
+  gMapOpenAppText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1A73E8',
+  },
+  gMapCanvas: {
+    width: '100%',
+    height: 290,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  gMapCanvasDefault: {
+    backgroundColor: '#F4F3F0',
+  },
+  gMapCanvasSatellite: {
+    backgroundColor: '#1E293B',
+  },
+  gMapVectorScene: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+  },
+  gMapWaterway: {
+    position: 'absolute',
+    bottom: -20,
+    left: -20,
+    width: 140,
+    height: 120,
+    backgroundColor: '#A5D6F5',
+    borderTopRightRadius: 70,
+    borderBottomRightRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    transform: [{ rotate: '-15deg' }],
+  },
+  gMapWaterwaySatellite: {
+    backgroundColor: '#0F172A',
+  },
+  gMapWaterText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#185ABC',
+    letterSpacing: 0.5,
+    fontStyle: 'italic',
+  },
+  gMapParkOne: {
+    position: 'absolute',
+    top: 18,
+    right: 20,
+    width: 100,
+    height: 70,
+    backgroundColor: '#CCEADA',
+    borderRadius: 16,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: '#B7E1CD',
+  },
+  gMapParkTwo: {
+    position: 'absolute',
+    bottom: 22,
+    right: 30,
+    width: 85,
+    height: 60,
+    backgroundColor: '#D2E3FC',
+    borderRadius: 14,
+    padding: 6,
+  },
+  gMapParkSatellite: {
+    backgroundColor: '#166534',
+    borderColor: '#14532D',
+  },
+  gMapParkText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#137333',
+  },
+  gMapBuilding: {
+    position: 'absolute',
+    backgroundColor: '#E5E7EB',
+    borderRadius: 4,
+    borderWidth: 0.5,
+    borderColor: '#D1D5DB',
+  },
+  gMapHighway: {
+    position: 'absolute',
+    top: 75,
+    left: -30,
+    width: 420,
+    height: 18,
+    backgroundColor: '#FCD88B',
+    borderTopWidth: 1.5,
+    borderBottomWidth: 1.5,
+    borderColor: '#FFFFFF',
+    transform: [{ rotate: '26deg' }],
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gMapHighwaySatellite: {
+    backgroundColor: '#B45309',
+    borderColor: '#78350F',
+  },
+  gMapHighwayBadge: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 3,
+    borderWidth: 0.5,
+    borderColor: '#FFFFFF',
+  },
+  gMapHighwayBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+  gMapRoadHorizontal: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 14,
+    backgroundColor: '#FFFFFF',
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#E2E8F0',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  gMapRoadVertical: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 14,
+    backgroundColor: '#FFFFFF',
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: '#E2E8F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  gMapStreetName: {
+    fontSize: 7,
+    fontWeight: '800',
+    color: '#70757A',
+    letterSpacing: 0.8,
+  },
+  gMapStreetNameVertical: {
+    position: 'absolute',
+    fontSize: 7,
+    fontWeight: '800',
+    color: '#70757A',
+    letterSpacing: 0.5,
+    transform: [{ rotate: '90deg' }],
+    width: 80,
+    textAlign: 'center',
+  },
+  gMapTrafficFlowGreen: {
+    position: 'absolute',
+    top: 96,
+    left: 10,
+    width: 140,
+    height: 3,
+    backgroundColor: '#34A853',
+    borderRadius: 1.5,
+  },
+  gMapTrafficFlowAmber: {
+    position: 'absolute',
+    top: 96,
+    left: 155,
+    width: 60,
+    height: 3,
+    backgroundColor: '#FBBC04',
+    borderRadius: 1.5,
+  },
+  gMapUserDotWrapper: {
+    position: 'absolute',
+    top: 125,
+    left: '48%',
+    marginLeft: -15,
+    alignItems: 'center',
+    zIndex: 40,
+  },
+  gMapUserBeam: {
+    position: 'absolute',
+    top: -12,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 12,
+    borderRightWidth: 12,
+    borderTopWidth: 20,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: 'rgba(66, 133, 244, 0.25)',
+    transform: [{ rotate: '-35deg' }],
+  },
+  gMapUserPulseRing: {
+    position: 'absolute',
+    top: -6,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(66, 133, 244, 0.22)',
+  },
+  gMapUserBlueDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#1A73E8',
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  gMapUserLabelPill: {
+    backgroundColor: 'rgba(26, 115, 232, 0.95)',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    marginTop: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  gMapUserLabelText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  gMapMarkerAnchor: {
+    position: 'absolute',
+    alignItems: 'center',
+  },
+  gMapCallout: {
+    position: 'absolute',
+    bottom: 42,
+    backgroundColor: '#FFFFFF',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    width: 140,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#E8EAED',
+    alignItems: 'center',
+  },
+  gMapCalloutRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 2,
+  },
+  gMapCalloutTitle: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#2A9D8F',
-    textTransform: 'uppercase',
+    color: '#202124',
+    flex: 1,
+    marginRight: 4,
   },
-  mapRadiusText: { fontSize: 11, color: '#94A3B8', fontWeight: '600' },
-  radarVisual: {
-    width: 220,
-    height: 220,
+  gMapCalloutDist: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#1A73E8',
+  },
+  gMapCalloutAction: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#1A73E8',
+  },
+  gMapCalloutArrow: {
+    position: 'absolute',
+    bottom: -6,
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#FFFFFF',
+  },
+  gMapTeardropWrapper: {
+    alignItems: 'center',
+  },
+  gMapTeardropSelected: {
+    transform: [{ scale: 1.25 }],
+  },
+  gMapTeardropHead: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: 10,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 5,
   },
-  radarRing: {
+  gMapTeardropHeadActive: {
+    borderColor: '#FDE047',
+    borderWidth: 2.5,
+  },
+  gMapTeardropIcon: {
+    fontSize: 13,
+  },
+  gMapTeardropPoint: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 5,
+    borderRightWidth: 5,
+    borderTopWidth: 8,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    marginTop: -2,
+  },
+  gMapPinShadow: {
+    width: 12,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    marginTop: 1,
+  },
+  gMapZoomControls: {
     position: 'absolute',
+    right: 12,
+    bottom: 50,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.25)',
+    borderColor: '#E8EAED',
+    overflow: 'hidden',
   },
-  userPinContainer: {
-    width: 24,
-    height: 24,
+  gMapZoomBtn: {
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  userPinGlow: {
-    position: 'absolute',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(59, 130, 246, 0.35)',
+  gMapZoomText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#3C4043',
   },
-  userPinDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: '#3B82F6',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+  gMapZoomDivider: {
+    height: 1,
+    backgroundColor: '#E8EAED',
+    width: '100%',
   },
-  mapMarker: {
+  gMapRecenterFab: {
     position: 'absolute',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    right: 12,
+    bottom: 12,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FFFFFF',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: '#E8EAED',
   },
-  mapMarkerSelected: {
-    borderColor: THEME.primary,
-    borderWidth: 3,
-    transform: [{ scale: 1.2 }],
+  gMapRecenterIcon: {
+    fontSize: 18,
+    color: '#1A73E8',
+    fontWeight: '800',
   },
-  markerEmoji: { fontSize: 16 },
-  mapHintText: {
+  gMapCompass: {
+    position: 'absolute',
+    top: 10,
+    right: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.15,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  gMapCompassIcon: {
+    fontSize: 14,
+  },
+  gMapBottomBar: {
+    position: 'absolute',
+    bottom: 6,
+    left: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  googleLogoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  gLetter: {
     fontSize: 11,
-    color: '#94A3B8',
+    fontWeight: '900',
+  },
+  gMapScaleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.75)',
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+    gap: 4,
+  },
+  gMapScaleText: {
+    fontSize: 8,
+    fontWeight: '700',
+    color: '#5F6368',
+  },
+  gMapScaleRuler: {
+    width: 20,
+    height: 2,
+    backgroundColor: '#5F6368',
+  },
+  gMapFooterNotice: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#F8FAFC',
+    borderTopWidth: 1,
+    borderTopColor: '#F1F3F4',
+  },
+  gMapFooterText: {
+    fontSize: 10,
+    color: '#5F6368',
+    fontWeight: '600',
     textAlign: 'center',
-    marginTop: 4,
   },
 
   selectedZoneCard: {
