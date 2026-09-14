@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -8,6 +8,7 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
+  PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SafeZoneService } from '../services/safeZoneService';
@@ -64,6 +65,42 @@ export default function SafeZonesScreen() {
   const [markingSpot, setMarkingSpot] = useState<boolean>(false);
   const [mapType, setMapType] = useState<'map' | 'satellite'>('map');
   const [mapZoom, setMapZoom] = useState<number>(1);
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isDraggingMap, setIsDraggingMap] = useState<boolean>(false);
+
+  const panOffsetRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const panStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  panOffsetRef.current = panOffset;
+
+  // 2D Pan Responder for drag-to-pan map interaction
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
+      onMoveShouldSetPanResponder: (_, gs) => {
+        return Math.abs(gs.dx) > 4 || Math.abs(gs.dy) > 4;
+      },
+      onMoveShouldSetPanResponderCapture: (_, gs) => {
+        return Math.abs(gs.dx) > 4 || Math.abs(gs.dy) > 4;
+      },
+      onPanResponderGrant: () => {
+        setIsDraggingMap(true);
+        panStartRef.current = { ...panOffsetRef.current };
+      },
+      onPanResponderMove: (_, gs) => {
+        setPanOffset({
+          x: Math.round(panStartRef.current.x + gs.dx),
+          y: Math.round(panStartRef.current.y + gs.dy),
+        });
+      },
+      onPanResponderRelease: () => {
+        setIsDraggingMap(false);
+      },
+      onPanResponderTerminate: () => {
+        setIsDraggingMap(false);
+      },
+    })
+  ).current;
 
   useEffect(() => {
     loadLocationAndZones();
@@ -130,6 +167,22 @@ export default function SafeZonesScreen() {
 
   const handleNavigate = (zone: SafeZone) => {
     SafeZoneService.openNavigation(zone, userCoords || undefined);
+  };
+
+  const focusPlaceOnMap = (zone: SafeZone) => {
+    setSelectedZone(zone);
+    if (userCoords && zone.latitude && zone.longitude) {
+      const dLatKm = (zone.latitude - userCoords.latitude) * 111.0;
+      const dLonKm =
+        (zone.longitude - userCoords.longitude) *
+        111.0 *
+        Math.cos((userCoords.latitude * Math.PI) / 180);
+      const scale = 32 * mapZoom;
+      const targetPanX = Math.round(-dLonKm * scale);
+      const targetPanY = Math.round(dLatKm * scale);
+      setPanOffset({ x: targetPanX, y: targetPanY });
+      panOffsetRef.current = { x: targetPanX, y: targetPanY };
+    }
   };
 
   const handleCall = (phone: string) => {
@@ -276,6 +329,7 @@ export default function SafeZonesScreen() {
         keyboardShouldPersistTaps="handled"
         bounces={true}
         overScrollMode="always"
+        scrollEnabled={!isDraggingMap}
       >
         {/* GPS Warning Banner if disabled */}
         {locationDisabled && (
@@ -500,136 +554,235 @@ export default function SafeZonesScreen() {
             </View>
           )}
 
-          {/* Authentic Google Maps Canvas with Real Dynamic GPS Radar */}
+          {/* Authentic Google Maps Canvas with 2D Drag-to-Pan Radar & Cluster Fan-out */}
           <View
             style={[
               styles.gMapCanvas,
               mapType === 'satellite' ? styles.gMapCanvasSatellite : styles.gMapCanvasDefault,
             ]}
+            {...panResponder.panHandlers}
           >
-            {/* Range distance rings (1km, 3km, 5km) */}
-            <View style={[styles.gMapRadarRing, { width: 90 * mapZoom, height: 90 * mapZoom, borderRadius: 45 * mapZoom }]} />
-            <View style={[styles.gMapRadarRing, { width: 180 * mapZoom, height: 180 * mapZoom, borderRadius: 90 * mapZoom }]} />
-            <View style={[styles.gMapRadarRing, { width: 270 * mapZoom, height: 270 * mapZoom, borderRadius: 135 * mapZoom }]} />
+            {(() => {
+              const originX = 165;
+              const originY = 145;
+              const centerX = originX + panOffset.x;
+              const centerY = originY + panOffset.y;
+              const baseScale = 32 * mapZoom;
 
-            {/* Range Label Indicators */}
-            <Text style={[styles.gMapRadarLabel, { top: 140 - 45 * mapZoom - 10 }]}>1 km</Text>
-            <Text style={[styles.gMapRadarLabel, { top: 140 - 90 * mapZoom - 10 }]}>3 km</Text>
-            <Text style={[styles.gMapRadarLabel, { top: 140 - 135 * mapZoom - 10 }]}>5 km</Text>
+              // 1. Calculate raw projected coordinates for all safe zones
+              const renderedPlaces = safeZones.slice(0, 25).map((zone) => {
+                let rawX = originX;
+                let rawY = originY;
 
-            {/* Center User Location Pin (Google Maps Blue Pulsing Dot & Directional Halo) */}
-            <View style={styles.gMapUserDotWrapper}>
-              <View style={styles.gMapUserBeam} />
-              <View style={styles.gMapUserPulseRing} />
-              <View style={styles.gMapUserBlueDot} />
-              <View style={styles.gMapUserLabelPill}>
-                <Text style={styles.gMapUserLabelText}>You (Live GPS)</Text>
-              </View>
-            </View>
+                if (userCoords && zone.latitude && zone.longitude) {
+                  const dLatKm = (zone.latitude - userCoords.latitude) * 111.0;
+                  const dLonKm =
+                    (zone.longitude - userCoords.longitude) *
+                    111.0 *
+                    Math.cos((userCoords.latitude * Math.PI) / 180);
+                  rawX = originX + panOffset.x + dLonKm * baseScale;
+                  rawY = originY + panOffset.y - dLatKm * baseScale; // Latitude increases northward
+                } else if (zone.distanceKm !== undefined) {
+                  const hash = Math.abs(zone.name.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
+                  const angle = (hash % 360) * (Math.PI / 180);
+                  const distPixels = Math.min(180, zone.distanceKm * 28 * mapZoom);
+                  rawX = originX + panOffset.x + Math.cos(angle) * distPixels;
+                  rawY = originY + panOffset.y + Math.sin(angle) * distPixels;
+                }
+                return { zone, rawX, rawY };
+              });
 
-            {/* Real Dynamic GPS Pins relative to User Coords */}
-            {safeZones.slice(0, 15).map((zone) => {
-              const pinStyle = getGooglePinStyle(zone.category, zone.isUserAdded);
-              const isSelected = selectedZone?.id === zone.id;
+              // 2. Cluster nearby pins (within 28px) so they don't stack on top of each other
+              const CLUSTER_RADIUS = 28;
+              const clusters: (typeof renderedPlaces)[] = [];
 
-              // Compute real relative coordinates in km from live GPS
-              let posX = 160;
-              let posY = 140;
-
-              if (userCoords && zone.latitude && zone.longitude) {
-                const dLatKm = (zone.latitude - userCoords.latitude) * 111.0;
-                const dLonKm =
-                  (zone.longitude - userCoords.longitude) *
-                  111.0 *
-                  Math.cos((userCoords.latitude * Math.PI) / 180);
-                const scale = 28 * mapZoom;
-                posX = 160 + dLonKm * scale;
-                posY = 140 - dLatKm * scale; // Latitude increases northward
-              } else if (zone.distanceKm !== undefined) {
-                // Approximate radial distribution if user coordinates not exact
-                const hash = Math.abs(zone.name.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
-                const angle = (hash % 360) * (Math.PI / 180);
-                const distPixels = Math.min(120, zone.distanceKm * 25 * mapZoom);
-                posX = 160 + Math.cos(angle) * distPixels;
-                posY = 140 + Math.sin(angle) * distPixels;
+              for (const item of renderedPlaces) {
+                let placed = false;
+                for (const cluster of clusters) {
+                  const leader = cluster[0];
+                  const dist = Math.hypot(item.rawX - leader.rawX, item.rawY - leader.rawY);
+                  if (dist < CLUSTER_RADIUS) {
+                    cluster.push(item);
+                    placed = true;
+                    break;
+                  }
+                }
+                if (!placed) {
+                  clusters.push([item]);
+                }
               }
 
-              // Clamp inside visible canvas bounds
-              const boundedX = Math.max(22, Math.min(298, posX));
-              const boundedY = Math.max(26, Math.min(252, posY));
+              // 3. De-cluster / Spiderfy overlapping pins
+              const pinPositions = new Map<string, { posX: number; posY: number; isClustered: boolean }>();
+
+              for (const cluster of clusters) {
+                if (cluster.length === 1) {
+                  pinPositions.set(cluster[0].zone.id, {
+                    posX: cluster[0].rawX,
+                    posY: cluster[0].rawY,
+                    isClustered: false,
+                  });
+                } else {
+                  const count = cluster.length;
+                  const fanRadius = 26 + Math.min(count * 2.5, 16);
+                  cluster.forEach((item, idx) => {
+                    const angle = (idx / count) * 2 * Math.PI - Math.PI / 2;
+                    pinPositions.set(item.zone.id, {
+                      posX: item.rawX + Math.cos(angle) * fanRadius,
+                      posY: item.rawY + Math.sin(angle) * fanRadius,
+                      isClustered: true,
+                    });
+                  });
+                }
+              }
 
               return (
-                <View
-                  key={zone.id}
-                  style={[
-                    styles.gMapMarkerAnchor,
-                    {
-                      left: boundedX - 14,
-                      top: boundedY - 32,
-                      zIndex: isSelected ? 50 : 10,
-                    },
-                  ]}
-                >
-                  {/* Selected Zone Google Maps Callout Bubble */}
-                  {isSelected && (
-                    <TouchableOpacity
-                      style={styles.gMapCallout}
-                      onPress={() => {
-                        AlertService.triggerHaptic();
-                        handleNavigate(zone);
-                      }}
-                      activeOpacity={0.9}
-                    >
-                      <View style={styles.gMapCalloutRow}>
-                        <Text style={styles.gMapCalloutTitle} numberOfLines={1}>
-                          {zone.name}
-                        </Text>
-                        <Text style={styles.gMapCalloutDist}>
-                          {zone.distanceKm !== undefined
-                            ? `${zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)}m` : `${zone.distanceKm.toFixed(1)}km`}`
-                            : 'Near'}
-                        </Text>
-                      </View>
-                      <Text style={styles.gMapCalloutAction}>Directions in Google Maps ➔</Text>
-                      <View style={styles.gMapCalloutArrow} />
-                    </TouchableOpacity>
-                  )}
-
-                  {/* Google Teardrop Pin Button */}
-                  <TouchableOpacity
+                <>
+                  {/* Range distance rings (1km, 3km, 5km) centered at live GPS position */}
+                  <View
                     style={[
-                      styles.gMapTeardropWrapper,
-                      isSelected && styles.gMapTeardropSelected,
+                      styles.gMapRadarRing,
+                      {
+                        left: centerX,
+                        top: centerY,
+                        width: 90 * mapZoom,
+                        height: 90 * mapZoom,
+                        borderRadius: 45 * mapZoom,
+                        transform: [{ translateX: -45 * mapZoom }, { translateY: -45 * mapZoom }],
+                      },
                     ]}
-                    onPress={() => {
-                      AlertService.triggerHaptic();
-                      setSelectedZone(zone);
-                    }}
-                    activeOpacity={0.85}
+                  />
+                  <View
+                    style={[
+                      styles.gMapRadarRing,
+                      {
+                        left: centerX,
+                        top: centerY,
+                        width: 180 * mapZoom,
+                        height: 180 * mapZoom,
+                        borderRadius: 90 * mapZoom,
+                        transform: [{ translateX: -90 * mapZoom }, { translateY: -90 * mapZoom }],
+                      },
+                    ]}
+                  />
+                  <View
+                    style={[
+                      styles.gMapRadarRing,
+                      {
+                        left: centerX,
+                        top: centerY,
+                        width: 270 * mapZoom,
+                        height: 270 * mapZoom,
+                        borderRadius: 135 * mapZoom,
+                        transform: [{ translateX: -135 * mapZoom }, { translateY: -135 * mapZoom }],
+                      },
+                    ]}
+                  />
+
+                  {/* Range Label Indicators */}
+                  <Text style={[styles.gMapRadarLabel, { left: centerX + 4, top: centerY - 45 * mapZoom - 8 }]}>1 km</Text>
+                  <Text style={[styles.gMapRadarLabel, { left: centerX + 4, top: centerY - 90 * mapZoom - 8 }]}>3 km</Text>
+                  <Text style={[styles.gMapRadarLabel, { left: centerX + 4, top: centerY - 135 * mapZoom - 8 }]}>5 km</Text>
+
+                  {/* Center User Location Pin (Google Maps Blue Pulsing Dot & Directional Halo) */}
+                  <View
+                    style={[
+                      styles.gMapUserDotWrapper,
+                      {
+                        left: centerX - 15,
+                        top: centerY - 15,
+                      },
+                    ]}
                   >
-                    {/* Teardrop Balloon Head */}
-                    <View
-                      style={[
-                        styles.gMapTeardropHead,
-                        { backgroundColor: pinStyle.pinColor },
-                        isSelected && styles.gMapTeardropHeadActive,
-                      ]}
-                    >
-                      <Text style={styles.gMapTeardropIcon}>{pinStyle.icon}</Text>
+                    <View style={styles.gMapUserBeam} />
+                    <View style={styles.gMapUserPulseRing} />
+                    <View style={styles.gMapUserBlueDot} />
+                    <View style={styles.gMapUserLabelPill}>
+                      <Text style={styles.gMapUserLabelText}>You (Live GPS)</Text>
                     </View>
-                    {/* Teardrop Pointed Needle */}
-                    <View
-                      style={[
-                        styles.gMapTeardropPoint,
-                        { borderTopColor: pinStyle.pinColor },
-                      ]}
-                    />
-                    {/* Ground Shadow */}
-                    <View style={styles.gMapPinShadow} />
-                  </TouchableOpacity>
-                </View>
+                  </View>
+
+                  {/* Real Dynamic GPS Pins relative to User Coords */}
+                  {renderedPlaces.map(({ zone }) => {
+                    const pinStyle = getGooglePinStyle(zone.category, zone.isUserAdded);
+                    const isSelected = selectedZone?.id === zone.id;
+                    const pos = pinPositions.get(zone.id) || { posX: originX, posY: originY, isClustered: false };
+
+                    // Skip rendering if far outside canvas bounds to conserve performance
+                    if (pos.posX < -100 || pos.posX > 450 || pos.posY < -100 || pos.posY > 400) {
+                      return null;
+                    }
+
+                    return (
+                      <View
+                        key={zone.id}
+                        style={[
+                          styles.gMapMarkerAnchor,
+                          {
+                            left: pos.posX - 14,
+                            top: pos.posY - 32,
+                            zIndex: isSelected ? 60 : 10,
+                          },
+                        ]}
+                      >
+                        {/* Selected Zone Informational Callout Bubble (NO auto-navigation!) */}
+                        {isSelected && (
+                          <View style={styles.gMapCallout}>
+                            <View style={styles.gMapCalloutRow}>
+                              <Text style={styles.gMapCalloutTitle} numberOfLines={1}>
+                                {zone.name}
+                              </Text>
+                              <Text style={styles.gMapCalloutDist}>
+                                {zone.distanceKm !== undefined
+                                  ? `${zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)}m` : `${zone.distanceKm.toFixed(1)}km`}`
+                                  : 'Near'}
+                              </Text>
+                            </View>
+                            <Text style={styles.gMapCalloutAction}>Tap "START NAVIGATION" to route</Text>
+                            <View style={styles.gMapCalloutArrow} />
+                          </View>
+                        )}
+
+                        {/* Teardrop Pin - Tapping ONLY selects place without navigating */}
+                        <TouchableOpacity
+                          style={[
+                            styles.gMapTeardropWrapper,
+                            isSelected && styles.gMapTeardropSelected,
+                          ]}
+                          onPress={() => {
+                            AlertService.triggerHaptic();
+                            setSelectedZone(zone);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <View
+                            style={[
+                              styles.gMapTeardropHead,
+                              { backgroundColor: pinStyle.pinColor },
+                              isSelected && styles.gMapTeardropHeadActive,
+                            ]}
+                          >
+                            <Text style={styles.gMapTeardropIcon}>{pinStyle.icon}</Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.gMapTeardropPoint,
+                              { borderTopColor: pinStyle.pinColor },
+                            ]}
+                          />
+                          <View style={styles.gMapPinShadow} />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </>
               );
-            })}
+            })()}
+
+            {/* Interactive Map Drag & Pan Hint Badge */}
+            <View style={styles.gMapHintBadge}>
+              <Text style={styles.gMapHintText}>✋ Drag to pan map • ⌖ Recenter</Text>
+            </View>
 
             {/* Floating Google Maps Controls: Zoom + / - buttons */}
             <View style={styles.gMapZoomControls}>
@@ -637,7 +790,7 @@ export default function SafeZonesScreen() {
                 style={styles.gMapZoomBtn}
                 onPress={() => {
                   AlertService.triggerHaptic();
-                  setMapZoom((prev) => Math.min(prev + 0.25, 1.75));
+                  setMapZoom((prev) => Math.min(prev + 0.25, 2.0));
                 }}
                 activeOpacity={0.7}
               >
@@ -661,6 +814,8 @@ export default function SafeZonesScreen() {
               style={styles.gMapRecenterFab}
               onPress={() => {
                 AlertService.triggerHaptic();
+                setPanOffset({ x: 0, y: 0 });
+                panOffsetRef.current = { x: 0, y: 0 };
                 setMapZoom(1);
                 if (safeZones.length > 0) {
                   setSelectedZone(safeZones[0]);
@@ -711,6 +866,89 @@ export default function SafeZonesScreen() {
             <Text style={styles.gMapSearchAllChevron}>➔</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Horizontal Quick-Scroll Places Carousel */}
+        {safeZones.length > 0 && (
+          <View style={styles.carouselSection}>
+            <View style={styles.carouselHeaderRow}>
+              <View style={styles.carouselTitleCol}>
+                <Text style={styles.carouselHeaderTitle}>
+                  Discovered Safe Havens ({safeZones.length})
+                </Text>
+                <Text style={styles.carouselHeaderSub}>
+                  Swipe horizontally • Tap card to focus & center on map
+                </Text>
+              </View>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.carouselScrollContent}
+              nestedScrollEnabled={true}
+            >
+              {safeZones.map((zone) => {
+                const isSelected = selectedZone?.id === zone.id;
+                const pinStyle = getGooglePinStyle(zone.category, zone.isUserAdded);
+                const estMin = Math.max(2, Math.round((zone.distanceKm ?? 1) * 3.5));
+
+                return (
+                  <TouchableOpacity
+                    key={`carousel-${zone.id}`}
+                    style={[
+                      styles.carouselCard,
+                      isSelected && styles.carouselCardActive,
+                    ]}
+                    onPress={() => {
+                      AlertService.triggerHaptic();
+                      focusPlaceOnMap(zone);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.carouselCardTop}>
+                      <View style={[styles.carouselIconBg, { backgroundColor: pinStyle.pinColor + '18' }]}>
+                        <Text style={styles.carouselIcon}>{pinStyle.icon}</Text>
+                      </View>
+                      <View style={[styles.carouselBadge, { backgroundColor: pinStyle.pinColor + '18' }]}>
+                        <Text style={[styles.carouselBadgeText, { color: pinStyle.pinColor }]}>
+                          {pinStyle.label.toUpperCase()}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <Text style={styles.carouselName} numberOfLines={1}>
+                      {zone.name}
+                    </Text>
+                    <Text style={styles.carouselAddress} numberOfLines={1}>
+                      {zone.address}
+                    </Text>
+
+                    <View style={styles.carouselFooter}>
+                      <Text style={styles.carouselDistanceText}>
+                        📍 {zone.distanceKm !== undefined
+                          ? zone.distanceKm < 1
+                            ? `${Math.round(zone.distanceKm * 1000)} m`
+                            : `${zone.distanceKm.toFixed(1)} km`
+                          : 'Near'}
+                      </Text>
+                      <Text style={styles.carouselEtaText}>⏱ {estMin}m</Text>
+                    </View>
+
+                    {isSelected ? (
+                      <View style={styles.carouselFocusedBar}>
+                        <Text style={styles.carouselFocusedText}>✓ FOCUSED ON MAP</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.carouselTapHintBar}>
+                        <Text style={styles.carouselTapHintText}>Tap to center map ➔</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
 
         {/* Selected Zone Quick Action Card */}
         {selectedZone && (
@@ -795,7 +1033,10 @@ export default function SafeZonesScreen() {
                 isSelected && styles.zoneCardSelected,
                 zone.isUserAdded && styles.userZoneCard,
               ]}
-              onPress={() => setSelectedZone(zone)}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                focusPlaceOnMap(zone);
+              }}
               activeOpacity={0.85}
             >
               <View style={[styles.zoneIconContainer, { backgroundColor: catColor.bg }]}>
@@ -1723,6 +1964,150 @@ const styles = StyleSheet.create({
   hoursBadgeText: { fontSize: 9, fontWeight: '700', color: THEME.textSecondary },
   deleteShelterBtn: { padding: 6, marginRight: 4 },
   deleteShelterIcon: { fontSize: 14 },
+  gMapHintBadge: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    backgroundColor: 'rgba(30, 41, 59, 0.75)',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    zIndex: 30,
+  },
+  gMapHintText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  carouselSection: {
+    marginBottom: 16,
+  },
+  carouselHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 2,
+  },
+  carouselTitleCol: {
+    flex: 1,
+  },
+  carouselHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  carouselHeaderSub: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    marginTop: 1,
+  },
+  carouselScrollContent: {
+    paddingRight: 16,
+    gap: 10,
+  },
+  carouselCard: {
+    width: 190,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  carouselCardActive: {
+    borderColor: '#1A73E8',
+    backgroundColor: '#F8FAFF',
+    shadowOpacity: 0.15,
+    elevation: 4,
+  },
+  carouselCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  carouselIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  carouselIcon: {
+    fontSize: 16,
+  },
+  carouselBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  carouselBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  carouselName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+    marginBottom: 2,
+  },
+  carouselAddress: {
+    fontSize: 10,
+    color: THEME.textSecondary,
+    marginBottom: 8,
+  },
+  carouselFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  carouselDistanceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  carouselDistanceText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#1A73E8',
+  },
+  carouselEtaText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0F766E',
+  },
+  carouselFocusedBar: {
+    marginTop: 6,
+    backgroundColor: '#E8F0FE',
+    paddingVertical: 3,
+    borderRadius: 4,
+    alignItems: 'center',
+  },
+  carouselFocusedText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#1A73E8',
+    letterSpacing: 0.5,
+  },
+  carouselTapHintBar: {
+    marginTop: 6,
+    backgroundColor: '#F8FAFC',
+    paddingVertical: 3,
+    borderRadius: 4,
+    alignItems: 'center',
+  },
+  carouselTapHintText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#64748B',
+  },
   zoneQuickNav: {
     width: 32,
     height: 32,
