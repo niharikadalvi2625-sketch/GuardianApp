@@ -9,12 +9,15 @@ import {
   Alert,
   Modal,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SosService } from '../services/sosService';
 import { AuthService } from '../services/authService';
 import { CloudSyncService } from '../services/cloudSyncService';
+import { HardwareTriggerService } from '../services/hardwareTriggerService';
 import AuthModal from '../components/AuthModal';
+import FirstAidModal from '../components/FirstAidModal';
 import { UserProfile, EmergencyContact, SosAlertSession, AuthUser, CloudSyncState } from '../types';
 
 const THEME = {
@@ -59,6 +62,11 @@ export default function ProfileScreen() {
   const [newContactRel, setNewContactRel] = useState<string>('Family');
   const [newContactPrimary, setNewContactPrimary] = useState<boolean>(false);
 
+  // Hardware & Stealth Trigger Settings
+  const [powerTriggerEnabled, setPowerTriggerEnabled] = useState<boolean>(true);
+  const [lockNotificationEnabled, setLockNotificationEnabled] = useState<boolean>(true);
+  const [firstAidModalVisible, setFirstAidModalVisible] = useState<boolean>(false);
+
   useEffect(() => {
     loadData();
     const unsubAuth = AuthService.onAuthStateChanged((user) => {
@@ -80,6 +88,21 @@ export default function ProfileScreen() {
     setProfile(p);
     setContacts(c);
     setHistory(h);
+
+    const pt = await HardwareTriggerService.isPowerTriggerEnabled();
+    setPowerTriggerEnabled(pt);
+    const ln = await HardwareTriggerService.isLockScreenNotificationEnabled();
+    setLockNotificationEnabled(ln);
+  };
+
+  const handleTogglePowerTrigger = async (value: boolean) => {
+    setPowerTriggerEnabled(value);
+    await HardwareTriggerService.setPowerTriggerEnabled(value);
+  };
+
+  const handleToggleLockNotification = async (value: boolean) => {
+    setLockNotificationEnabled(value);
+    await HardwareTriggerService.setLockScreenNotificationEnabled(value);
   };
 
   const handleSaveProfile = async () => {
@@ -477,6 +500,69 @@ export default function ProfileScreen() {
             ))
           )}
         </View>
+
+        {/* Section 4: Hardware & Stealth Triggers */}
+        <View style={styles.card}>
+          <View style={styles.cardTitleRow}>
+            <Text style={styles.cardIcon}>⚡</Text>
+            <Text style={styles.cardTitle}>Hardware & Stealth Triggers</Text>
+          </View>
+
+          {/* Power Button Triple-Press SOS */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingTextCol}>
+              <View style={styles.settingTitleRow}>
+                <Text style={styles.settingTitle}>Power Button Triple-Press SOS</Text>
+                <View style={styles.activePill}>
+                  <Text style={styles.activePillText}>STEALTH</Text>
+                </View>
+              </View>
+              <Text style={styles.settingDesc}>
+                Press the power button 3 times in 3 seconds while screen is locked to initiate emergency countdown & dispatch live GPS to parents.
+              </Text>
+            </View>
+            <Switch
+              value={powerTriggerEnabled}
+              onValueChange={handleTogglePowerTrigger}
+              trackColor={{ false: '#CBD5E1', true: '#EF4444' }}
+              thumbColor={powerTriggerEnabled ? '#FFFFFF' : '#F1F5F9'}
+            />
+          </View>
+
+          <View style={styles.settingDivider} />
+
+          {/* Lock-Screen Emergency Notification */}
+          <View style={styles.settingRow}>
+            <View style={styles.settingTextCol}>
+              <Text style={styles.settingTitle}>Lock-Screen Emergency Action Bar</Text>
+              <Text style={styles.settingDesc}>
+                Show persistent notification on lock screen with 1-tap SOS and live protection access without unlocking your phone.
+              </Text>
+            </View>
+            <Switch
+              value={lockNotificationEnabled}
+              onValueChange={handleToggleLockNotification}
+              trackColor={{ false: '#CBD5E1', true: '#0284C7' }}
+              thumbColor={lockNotificationEnabled ? '#FFFFFF' : '#F1F5F9'}
+            />
+          </View>
+
+          <View style={styles.settingDivider} />
+
+          {/* Offline First Aid Quick Access */}
+          <TouchableOpacity
+            style={styles.firstAidProfileBtn}
+            onPress={() => setFirstAidModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.firstAidProfileIcon}>🩺</Text>
+            <View style={styles.firstAidProfileCol}>
+              <Text style={styles.firstAidProfileTitle}>Offline First-Aid & Survival Guides</Text>
+              <Text style={styles.firstAidProfileSub}>CPR Metronome, Bleeding, Snakebites, Burns & Floods</Text>
+            </View>
+            <Text style={styles.firstAidProfileArrow}>➔</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
 
       {/* Modal: Add Guardian Contact */}
@@ -549,6 +635,11 @@ export default function ProfileScreen() {
           setCurrentUser(u);
           loadData();
         }}
+      />
+
+      <FirstAidModal
+        visible={firstAidModalVisible}
+        onClose={() => setFirstAidModalVisible(false)}
       />
     </SafeAreaView>
   );
@@ -1093,5 +1184,83 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#FFFFFF',
     letterSpacing: 0.5,
+  },
+
+  // Hardware & Stealth Trigger Styles
+  settingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  settingTextCol: {
+    flex: 1,
+    marginRight: 14,
+  },
+  settingTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 3,
+  },
+  settingTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  activePill: {
+    backgroundColor: '#FEE2E2',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  activePillText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#DC2626',
+    letterSpacing: 0.5,
+  },
+  settingDesc: {
+    fontSize: 12,
+    color: THEME.textSecondary,
+    lineHeight: 16,
+  },
+  settingDivider: {
+    height: 1,
+    backgroundColor: '#F1F5F9',
+    marginVertical: 4,
+  },
+  firstAidProfileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDFA',
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+  },
+  firstAidProfileIcon: {
+    fontSize: 24,
+    marginRight: 10,
+  },
+  firstAidProfileCol: {
+    flex: 1,
+  },
+  firstAidProfileTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0F766E',
+  },
+  firstAidProfileSub: {
+    fontSize: 11,
+    color: '#14B8A6',
+    marginTop: 1,
+  },
+  firstAidProfileArrow: {
+    fontSize: 16,
+    color: '#0F766E',
+    fontWeight: '900',
+    marginLeft: 6,
   },
 });

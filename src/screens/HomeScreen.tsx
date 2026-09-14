@@ -36,6 +36,9 @@ import BeingFollowedModal from '../components/BeingFollowedModal';
 import FakeCallModal from '../components/FakeCallModal';
 import JourneySentinelModal from '../components/JourneySentinelModal';
 import AuthModal from '../components/AuthModal';
+import FirstAidModal from '../components/FirstAidModal';
+import PowerTriggerCountdownModal from '../components/PowerTriggerCountdownModal';
+import { HardwareTriggerService } from '../services/hardwareTriggerService';
 
 const { width } = Dimensions.get('window');
 const SOS_BUTTON_SIZE = width * 0.32;
@@ -84,6 +87,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [parentPhone, setParentPhone] = useState<string>('');
   const [authModalVisible, setAuthModalVisible] = useState<boolean>(false);
 
+  // First Aid & Hardware Trigger State
+  const [firstAidModalVisible, setFirstAidModalVisible] = useState<boolean>(false);
+  const [initialPlaybookId, setInitialPlaybookId] = useState<string | undefined>(undefined);
+  const [powerTriggerModalVisible, setPowerTriggerModalVisible] = useState<boolean>(false);
+
   // Authentication & Cloud Sync State
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [syncState, setSyncState] = useState<CloudSyncState | null>(null);
@@ -97,6 +105,11 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
   useEffect(() => {
     loadData();
+
+    HardwareTriggerService.initialize();
+    const unsubPower = HardwareTriggerService.onPowerTrigger(() => {
+      setPowerTriggerModalVisible(true);
+    });
 
     const unsubAuth = AuthService.onAuthStateChanged((user) => {
       setCurrentUser(user);
@@ -125,6 +138,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       pulse.stop();
       unsubAuth();
       unsubSync();
+      unsubPower();
     };
   }, []);
 
@@ -578,7 +592,97 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           </View>
         </View>
 
-        {/* 5. LIVE SAFETY & DISASTER NEWS FEED */}
+        {/* 5. OFFLINE EMERGENCY FIRST-AID & DISASTER SURVIVAL */}
+        <View style={styles.firstAidSection}>
+          <View style={styles.sectionHeaderRow}>
+            <View>
+              <Text style={styles.sectionTitle}>Emergency First-Aid & Survival</Text>
+              <Text style={styles.sectionSubTitle}>100% Offline Medical & Disaster Protocols</Text>
+            </View>
+            <View style={styles.offlineReadyBadge}>
+              <Text style={styles.offlineReadyBadgeText}>💾 OFFLINE READY</Text>
+            </View>
+          </View>
+
+          {/* Primary First-Aid Hub Banner */}
+          <TouchableOpacity
+            style={styles.firstAidHeroCard}
+            onPress={() => {
+              AlertService.triggerHaptic();
+              setInitialPlaybookId(undefined);
+              setFirstAidModalVisible(true);
+            }}
+            activeOpacity={0.88}
+          >
+            <View style={styles.firstAidIconCircle}>
+              <Text style={styles.firstAidIconText}>🩺</Text>
+            </View>
+            <View style={styles.firstAidTextCol}>
+              <Text style={styles.firstAidHeroTitle}>Offline First-Aid & Survival Playbooks</Text>
+              <Text style={styles.firstAidHeroDesc}>
+                CPR metronome (110 BPM), tourniquets, snakebites, burns & flood survival
+              </Text>
+            </View>
+            <Text style={styles.firstAidArrow}>➔</Text>
+          </TouchableOpacity>
+
+          {/* Quick Category Chips */}
+          <View style={styles.firstAidChipsRow}>
+            <TouchableOpacity
+              style={styles.firstAidChip}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                setInitialPlaybookId('adult-cpr');
+                setFirstAidModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.firstAidChipIcon}>🫀</Text>
+              <Text style={styles.firstAidChipText}>CPR Rhythm</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.firstAidChip}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                setInitialPlaybookId('severe-bleeding');
+                setFirstAidModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.firstAidChipIcon}>🩸</Text>
+              <Text style={styles.firstAidChipText}>Bleeding</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.firstAidChip}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                setInitialPlaybookId('snakebite-protocol');
+                setFirstAidModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.firstAidChipIcon}>🐍</Text>
+              <Text style={styles.firstAidChipText}>Snakebite</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.firstAidChip}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                setInitialPlaybookId('flood-survival');
+                setFirstAidModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.firstAidChipIcon}>🌊</Text>
+              <Text style={styles.firstAidChipText}>Floods</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* 6. LIVE SAFETY & DISASTER NEWS FEED */}
         <View style={styles.newsSection}>
           <View style={styles.sectionHeaderRow}>
             <View>
@@ -803,6 +907,29 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
           setCurrentUser(u);
           loadData();
         }}
+      />
+
+      {/* Hardware Power Button Triple-Press Countdown Modal */}
+      <PowerTriggerCountdownModal
+        visible={powerTriggerModalVisible}
+        onCancel={() => setPowerTriggerModalVisible(false)}
+        onTriggerSos={() => {
+          setPowerTriggerModalVisible(false);
+          handleDirectSosPress();
+        }}
+        guardianName={
+          contacts.length > 0 && contacts[0].name ? contacts[0].name : 'Parents'
+        }
+      />
+
+      {/* Offline First-Aid & Survival Playbooks Hub Modal */}
+      <FirstAidModal
+        visible={firstAidModalVisible}
+        onClose={() => {
+          setFirstAidModalVisible(false);
+          setInitialPlaybookId(undefined);
+        }}
+        initialPlaybookId={initialPlaybookId}
       />
     </SafeAreaView>
   );
@@ -1342,7 +1469,96 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // 5. Safety News
+  // 5. Offline First-Aid & Survival Section
+  firstAidSection: {
+    marginBottom: 18,
+  },
+  offlineReadyBadge: {
+    backgroundColor: '#ECFDF5',
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderWidth: 0.5,
+    borderColor: '#A7F3D0',
+  },
+  offlineReadyBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#059669',
+    letterSpacing: 0.5,
+  },
+  firstAidHeroCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F766E',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+    shadowColor: '#0F766E',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  firstAidIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  firstAidIconText: {
+    fontSize: 20,
+  },
+  firstAidTextCol: {
+    flex: 1,
+  },
+  firstAidHeroTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  firstAidHeroDesc: {
+    fontSize: 10,
+    color: '#CCFBF1',
+    marginTop: 1,
+    fontWeight: '500',
+  },
+  firstAidArrow: {
+    fontSize: 16,
+    color: '#FFFFFF',
+    fontWeight: '800',
+    marginLeft: 6,
+  },
+  firstAidChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  firstAidChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F0FDFA',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    gap: 4,
+  },
+  firstAidChipIcon: {
+    fontSize: 12,
+  },
+  firstAidChipText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#0F766E',
+  },
+
+  // 6. Safety News
   newsSection: {
     marginBottom: 18,
   },
