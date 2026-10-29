@@ -1,25 +1,41 @@
 package com.guardianapp
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.Address
 import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import androidx.core.content.ContextCompat
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import java.util.Locale
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class GuardianLocationModule(private val reactContext: ReactApplicationContext) :
     ReactContextBaseJavaModule(reactContext) {
+
+    private val fusedLocationClient: FusedLocationProviderClient by lazy {
+        LocationServices.getFusedLocationProviderClient(reactContext)
+    }
 
     override fun getName(): String {
         return "GuardianLocation"
@@ -50,15 +66,104 @@ class GuardianLocationModule(private val reactContext: ReactApplicationContext) 
     }
 
     @ReactMethod
+    fun openLocationSettings(promise: Promise) {
+        try {
+            val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            reactContext.startActivity(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Settings.ACTION_SETTINGS).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                reactContext.startActivity(intent)
+                promise.resolve(true)
+            } catch (err: Exception) {
+                promise.reject("OPEN_SETTINGS_ERROR", err.message)
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    @ReactMethod
     fun getCurrentLocation(promise: Promise) {
         if (!hasPermission()) {
             promise.reject("PERMISSION_DENIED", "Location permission is not granted")
             return
         }
 
+        val isResolved = AtomicBoolean(false)
+        val mainHandler = Handler(Looper.getMainLooper())
+        val cts = CancellationTokenSource()
+
+        // 1. Try Google Play Services Fused Location Provider (High Accuracy: GPS + Wi-Fi + Cell Towers)
+        try {
+            fusedLocationClient.lastLocation
+                .addOnSuccessListener { lastLoc: Location? ->
+                    val now = System.currentTimeMillis()
+                    // If cached lastLocation is fresh (< 2 mins) and accurate, use it immediately
+                    if (lastLoc != null && (now - lastLoc.time) < 120_000 && lastLoc.accuracy < 100f) {
+                        if (isResolved.compareAndSet(false, true)) {
+                            cts.cancel()
+                            resolveWithLocation(lastLoc, promise)
+                            return@addOnSuccessListener
+                        }
+                    }
+
+                    // Request fresh high-accuracy location fix
+                    fusedLocationClient.getCurrentLocation(
+                        Priority.PRIORITY_HIGH_ACCURACY,
+                        cts.token
+                    ).addOnSuccessListener { freshLoc: Location? ->
+                        if (freshLoc != null) {
+                            if (isResolved.compareAndSet(false, true)) {
+                                resolveWithLocation(freshLoc, promise)
+                            }
+                        } else if (lastLoc != null) {
+                            if (isResolved.compareAndSet(false, true)) {
+                                resolveWithLocation(lastLoc, promise)
+                            }
+                        } else {
+                            fallbackToLocationManager(promise, isResolved)
+                        }
+                    }.addOnFailureListener {
+                        if (lastLoc != null) {
+                            if (isResolved.compareAndSet(false, true)) {
+                                resolveWithLocation(lastLoc, promise)
+                            }
+                        } else {
+                            fallbackToLocationManager(promise, isResolved)
+                        }
+                    }
+                }
+                .addOnFailureListener {
+                    fallbackToLocationManager(promise, isResolved)
+                }
+
+            // Timeout safety for Fused Location (5.5 seconds)
+            mainHandler.postDelayed({
+                if (!isResolved.get()) {
+                    cts.cancel()
+                    fallbackToLocationManager(promise, isResolved)
+                }
+            }, 5500)
+
+        } catch (e: Exception) {
+            fallbackToLocationManager(promise, isResolved)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun fallbackToLocationManager(promise: Promise, isResolved: AtomicBoolean) {
+        if (isResolved.get()) return
+
         val lm = reactContext.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         if (lm == null) {
-            promise.reject("NO_LOCATION_MANAGER", "LocationManager service not available")
+            if (isResolved.compareAndSet(false, true)) {
+                promise.reject("NO_LOCATION_MANAGER", "LocationManager service not available")
+            }
             return
         }
 
@@ -76,18 +181,17 @@ class GuardianLocationModule(private val reactContext: ReactApplicationContext) 
         }
 
         val now = System.currentTimeMillis()
-        if (bestLocation != null && (now - bestLocation.time) < 45000 && bestLocation.accuracy < 100f) {
-            resolveWithLocation(bestLocation, promise)
-            return
+        if (bestLocation != null && (now - bestLocation.time) < 180_000 && bestLocation.accuracy < 150f) {
+            if (isResolved.compareAndSet(false, true)) {
+                resolveWithLocation(bestLocation, promise)
+                return
+            }
         }
 
         val mainHandler = Handler(Looper.getMainLooper())
-        var resolved = false
-
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
-                if (!resolved) {
-                    resolved = true
+                if (isResolved.compareAndSet(false, true)) {
                     try {
                         lm.removeUpdates(this)
                     } catch (e: Exception) {}
@@ -101,8 +205,7 @@ class GuardianLocationModule(private val reactContext: ReactApplicationContext) 
         }
 
         val timeoutRunnable = Runnable {
-            if (!resolved) {
-                resolved = true
+            if (isResolved.compareAndSet(false, true)) {
                 try {
                     lm.removeUpdates(listener)
                 } catch (e: Exception) {}
@@ -114,7 +217,7 @@ class GuardianLocationModule(private val reactContext: ReactApplicationContext) 
                 }
             }
         }
-        mainHandler.postDelayed(timeoutRunnable, 7000)
+        mainHandler.postDelayed(timeoutRunnable, 5000)
 
         mainHandler.post {
             try {
@@ -140,23 +243,28 @@ class GuardianLocationModule(private val reactContext: ReactApplicationContext) 
                     requested = true
                 }
 
-                if (!requested && bestLocation != null) {
+                if (!requested) {
                     mainHandler.removeCallbacks(timeoutRunnable)
-                    resolved = true
-                    resolveWithLocation(bestLocation, promise)
-                } else if (!requested) {
-                    mainHandler.removeCallbacks(timeoutRunnable)
-                    resolved = true
-                    promise.reject("PROVIDERS_DISABLED", "Device location providers are disabled")
+                    if (bestLocation != null) {
+                        if (isResolved.compareAndSet(false, true)) {
+                            resolveWithLocation(bestLocation, promise)
+                        }
+                    } else {
+                        if (isResolved.compareAndSet(false, true)) {
+                            promise.reject("PROVIDERS_DISABLED", "Device location providers are disabled")
+                        }
+                    }
                 }
             } catch (e: SecurityException) {
                 mainHandler.removeCallbacks(timeoutRunnable)
                 if (bestLocation != null) {
-                    resolved = true
-                    resolveWithLocation(bestLocation, promise)
+                    if (isResolved.compareAndSet(false, true)) {
+                        resolveWithLocation(bestLocation, promise)
+                    }
                 } else {
-                    resolved = true
-                    promise.reject("SECURITY_EXCEPTION", e.message)
+                    if (isResolved.compareAndSet(false, true)) {
+                        promise.reject("SECURITY_EXCEPTION", e.message)
+                    }
                 }
             }
         }
@@ -171,24 +279,45 @@ class GuardianLocationModule(private val reactContext: ReactApplicationContext) 
 
         Thread {
             try {
-                val geocoder = Geocoder(reactContext, Locale.getDefault())
-                val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
-                if (!addresses.isNullOrEmpty()) {
-                    val addr = addresses[0]
-                    val city = addr.locality ?: addr.subAdminArea ?: addr.adminArea ?: ""
-                    val subLocality = addr.subLocality ?: ""
-                    val region = addr.adminArea ?: ""
-                    val country = addr.countryName ?: ""
-                    val addressLine = addr.getAddressLine(0) ?: (if (subLocality.isNotEmpty()) "$subLocality, $city" else city)
+                if (Geocoder.isPresent()) {
+                    val geocoder = Geocoder(reactContext, Locale.getDefault())
+                    val addresses: List<Address>?
 
-                    map.putString("city", city)
-                    map.putString("subLocality", subLocality)
-                    map.putString("region", region)
-                    map.putString("country", country)
-                    map.putString("address", addressLine)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val latch = CountDownLatch(1)
+                        var resultList: List<Address>? = null
+                        geocoder.getFromLocation(
+                            location.latitude,
+                            location.longitude,
+                            1
+                        ) { addrs ->
+                            resultList = addrs
+                            latch.countDown()
+                        }
+                        latch.await(2500, TimeUnit.MILLISECONDS)
+                        addresses = resultList
+                    } else {
+                        @Suppress("DEPRECATION")
+                        addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+                    }
+
+                    if (!addresses.isNullOrEmpty()) {
+                        val addr = addresses[0]
+                        val city = addr.locality ?: addr.subAdminArea ?: addr.adminArea ?: ""
+                        val subLocality = addr.subLocality ?: ""
+                        val region = addr.adminArea ?: ""
+                        val country = addr.countryName ?: ""
+                        val addressLine = addr.getAddressLine(0) ?: (if (subLocality.isNotEmpty()) "$subLocality, $city" else city)
+
+                        map.putString("city", city)
+                        map.putString("subLocality", subLocality)
+                        map.putString("region", region)
+                        map.putString("country", country)
+                        map.putString("address", addressLine)
+                    }
                 }
             } catch (e: Exception) {
-                // Ignore geocoder network error
+                // Ignore geocoder lookup error, coords are already in map
             }
             promise.resolve(map)
         }.start()

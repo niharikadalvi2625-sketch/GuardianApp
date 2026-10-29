@@ -54,6 +54,16 @@ export interface SafetyReport {
   longitude: number;
   timestamp: string;
   isSynced: boolean;
+  locality?: string;
+  city?: string;
+  authorName?: string;
+  confirmationsCount?: number;
+  distanceKm?: number;
+  expiresAt?: number;
+  imageUrl?: string;
+  isVerified?: boolean;
+  verificationScore?: number;
+  detectedHazard?: string;
 }
 
 export interface SosAlertSession {

@@ -16,17 +16,20 @@ import LocationPermissionScreen from './src/screens/LocationPermissionScreen';
 import { AuthService } from './src/services/authService';
 import { LocationService } from './src/services/locationService';
 import { AuthUser } from './src/types';
+import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 
-const THEME = {
-  primary: '#E63946',
-  textLight: '#94A3B8',
-  cardBg: '#FFFFFF',
-  border: '#E2E8F0',
-  darkBg: '#0F172A',
-};
-
-const TabIcon = ({ name, focused }: { name: string; focused: boolean }) => {
-  const color = focused ? THEME.primary : THEME.textLight;
+const TabIcon = ({
+  name,
+  focused,
+  primaryColor,
+  inactiveColor,
+}: {
+  name: string;
+  focused: boolean;
+  primaryColor: string;
+  inactiveColor: string;
+}) => {
+  const color = focused ? primaryColor : inactiveColor;
 
   const icons: Record<string, string> = {
     Home: '⌂',
@@ -45,7 +48,8 @@ const TabIcon = ({ name, focused }: { name: string; focused: boolean }) => {
 
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
-export default function App() {
+function AppContent() {
+  const { theme } = useTheme();
   const [appState, setAppState] = useState<'loading' | 'auth' | 'permission' | 'main'>('loading');
 
   useEffect(() => {
@@ -96,85 +100,98 @@ export default function App() {
 
   if (appState === 'loading') {
     return (
-      <SafeAreaProvider>
-        <View style={styles.loadingScreen}>
-          <ActivityIndicator size="large" color={THEME.primary} />
-        </View>
-      </SafeAreaProvider>
+      <View style={[styles.loadingScreen, { backgroundColor: theme.background }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
     );
   }
 
   if (appState === 'auth') {
-    return (
-      <SafeAreaProvider>
-        <WelcomeAuthScreen onLoginSuccess={handleLoginSuccess} />
-      </SafeAreaProvider>
-    );
+    return <WelcomeAuthScreen onLoginSuccess={handleLoginSuccess} />;
   }
 
   if (appState === 'permission') {
     return (
-      <SafeAreaProvider>
-        <LocationPermissionScreen
-          onPermissionGranted={handlePermissionCompleted}
-          onSkip={handlePermissionCompleted}
-        />
-      </SafeAreaProvider>
+      <LocationPermissionScreen
+        onPermissionGranted={handlePermissionCompleted}
+        onSkip={handlePermissionCompleted}
+      />
     );
   }
 
   return (
-    <SafeAreaProvider>
-      <NavigationContainer>
-        <Tab.Navigator
-          initialRouteName="HomeTab"
-          screenOptions={({
-            route,
-          }: {
-            route: RouteProp<RootTabParamList, keyof RootTabParamList>;
-          }) => ({
-            headerShown: false,
-            tabBarActiveTintColor: THEME.primary,
-            tabBarInactiveTintColor: THEME.textLight,
-            tabBarStyle: styles.tabBar,
-            tabBarLabelStyle: styles.tabBarLabel,
-            tabBarIcon: ({ focused }: { focused: boolean }) => {
-              let label = 'Home';
-              if (route.name === 'SafeZonesTab') label = 'Safe Zones';
-              else if (route.name === 'ReportsTab') label = 'Reports';
-              else if (route.name === 'ChatbotTab') label = 'MIA';
-              else if (route.name === 'ProfileTab') label = 'Profile';
-              return <TabIcon name={label} focused={focused} />;
+    <NavigationContainer>
+      <Tab.Navigator
+        initialRouteName="HomeTab"
+        screenOptions={({
+          route,
+        }: {
+          route: RouteProp<RootTabParamList, keyof RootTabParamList>;
+        }) => ({
+          headerShown: false,
+          tabBarActiveTintColor: theme.primary,
+          tabBarInactiveTintColor: theme.textMuted,
+          tabBarStyle: [
+            styles.tabBar,
+            {
+              backgroundColor: theme.tabBarBg,
+              borderTopColor: theme.tabBarBorder,
             },
-          })}
-        >
-          <Tab.Screen
-            name="HomeTab"
-            component={HomeScreen}
-            options={{ tabBarLabel: 'Home' }}
-          />
-          <Tab.Screen
-            name="SafeZonesTab"
-            component={SafeZonesScreen}
-            options={{ tabBarLabel: 'Safe Zones' }}
-          />
-          <Tab.Screen
-            name="ReportsTab"
-            component={ReportsScreen}
-            options={{ tabBarLabel: 'Reports' }}
-          />
-          <Tab.Screen
-            name="ChatbotTab"
-            component={ChatbotScreen}
-            options={{ tabBarLabel: 'MIA' }}
-          />
-          <Tab.Screen
-            name="ProfileTab"
-            component={ProfileScreen}
-            options={{ tabBarLabel: 'Profile' }}
-          />
-        </Tab.Navigator>
-      </NavigationContainer>
+          ],
+          tabBarLabelStyle: styles.tabBarLabel,
+          tabBarIcon: ({ focused }: { focused: boolean }) => {
+            let label = 'Home';
+            if (route.name === 'SafeZonesTab') label = 'Safe Zones';
+            else if (route.name === 'ReportsTab') label = 'Reports';
+            else if (route.name === 'ChatbotTab') label = 'MIA';
+            else if (route.name === 'ProfileTab') label = 'Profile';
+            return (
+              <TabIcon
+                name={label}
+                focused={focused}
+                primaryColor={theme.primary}
+                inactiveColor={theme.textMuted}
+              />
+            );
+          },
+        })}
+      >
+        <Tab.Screen
+          name="HomeTab"
+          component={HomeScreen}
+          options={{ tabBarLabel: 'Home' }}
+        />
+        <Tab.Screen
+          name="SafeZonesTab"
+          component={SafeZonesScreen}
+          options={{ tabBarLabel: 'Safe Zones' }}
+        />
+        <Tab.Screen
+          name="ReportsTab"
+          component={ReportsScreen}
+          options={{ tabBarLabel: 'Reports' }}
+        />
+        <Tab.Screen
+          name="ChatbotTab"
+          component={ChatbotScreen}
+          options={{ tabBarLabel: 'MIA' }}
+        />
+        <Tab.Screen
+          name="ProfileTab"
+          component={ProfileScreen}
+          options={{ tabBarLabel: 'Profile' }}
+        />
+      </Tab.Navigator>
+    </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
@@ -182,14 +199,11 @@ export default function App() {
 const styles = StyleSheet.create({
   loadingScreen: {
     flex: 1,
-    backgroundColor: THEME.darkBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tabBar: {
-    backgroundColor: THEME.cardBg,
     borderTopWidth: 1,
-    borderTopColor: THEME.border,
     height: 64,
     paddingBottom: 8,
     paddingTop: 8,

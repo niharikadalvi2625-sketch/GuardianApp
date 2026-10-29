@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,31 +10,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChatMessage, TriageGuide } from '../types';
 import { SosService } from '../services/sosService';
 import { ChatbotScreenNavigationProp, ChatbotRouteProp } from '../types/navigation';
-
-const THEME = {
-  primary: '#E63946',
-  primaryDark: '#B71C1C',
-  secondary: '#1D3557',
-  background: '#F8F9FA',
-  cardBg: '#FFFFFF',
-  textPrimary: '#1E293B',
-  textSecondary: '#64748B',
-  textLight: '#94A3B8',
-  green: '#10B981',
-  greenBg: '#ECFDF5',
-  blue: '#2563EB',
-  blueBg: '#EFF6FF',
-  marathiOrange: '#EA580C',
-  marathiBg: '#FFF7ED',
-  hindiTeal: '#0D9488',
-  hindiBg: '#F0FDFA',
-  border: '#E2E8F0',
-};
+import { useTheme } from '../context/ThemeContext';
 
 const TRIAGE_GUIDES: TriageGuide[] = [
   {
@@ -165,6 +147,32 @@ interface ChatbotScreenProps {
 }
 
 export default function ChatbotScreen({ navigation, route }: ChatbotScreenProps) {
+  const { theme, isDark } = useTheme();
+  const chatTheme = useMemo(
+    () => ({
+      primary: theme.primary,
+      primaryDark: theme.primaryDark,
+      secondary: isDark ? '#38BDF8' : '#1D3557',
+      background: theme.background,
+      cardBg: theme.cardBg,
+      textPrimary: theme.textPrimary,
+      textSecondary: theme.textSecondary,
+      textLight: theme.textMuted,
+      green: theme.emerald,
+      greenBg: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5',
+      blue: theme.blue,
+      blueBg: isDark ? 'rgba(59, 130, 246, 0.15)' : '#EFF6FF',
+      marathiOrange: isDark ? '#FB923C' : '#EA580C',
+      marathiBg: isDark ? 'rgba(234, 88, 12, 0.15)' : '#FFF7ED',
+      hindiTeal: isDark ? '#2DD4BF' : '#0D9488',
+      hindiBg: isDark ? 'rgba(13, 148, 136, 0.15)' : '#F0FDFA',
+      border: theme.cardBorder,
+    }),
+    [theme, isDark]
+  );
+  const THEME = chatTheme;
+  const styles = useMemo(() => getStyles(chatTheme), [chatTheme]);
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'm-1',
@@ -354,6 +362,7 @@ export default function ChatbotScreen({ navigation, route }: ChatbotScreenProps)
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle={theme.statusBarStyle} backgroundColor={theme.background} />
       <KeyboardAvoidingView
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -664,7 +673,7 @@ export default function ChatbotScreen({ navigation, route }: ChatbotScreenProps)
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (THEME: any) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: THEME.background,

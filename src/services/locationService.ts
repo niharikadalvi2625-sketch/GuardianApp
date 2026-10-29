@@ -5,21 +5,22 @@ import { StorageService } from './storageService';
 const { GuardianLocation } = NativeModules;
 const LOCATION_CACHE_KEY = '@guardian_last_known_coords';
 
-// Default initial coordinates centered around the user's region
+// Clean baseline coordinates (Maharashtra, India)
 const DEFAULT_COORDS: LocationCoords = {
-  latitude: 18.5204,
-  longitude: 73.8567,
-  accuracy: 15,
+  latitude: 21.1463,
+  longitude: 79.0849,
+  accuracy: 25,
   timestamp: Date.now(),
-  city: 'Pune',
+  city: 'Maharashtra',
   region: 'Maharashtra',
   country: 'India',
-  address: 'Pune, Maharashtra, India',
+  address: 'Maharashtra, India',
 };
 
 class LocationServiceImpl {
   private lastKnownLocation: LocationCoords = DEFAULT_COORDS;
   private permissionGranted: boolean | null = null;
+  private isLocatingInProgress: boolean = false;
 
   constructor() {
     this.initFromCache();
@@ -30,6 +31,13 @@ class LocationServiceImpl {
       const cached = await StorageService.getItem(LOCATION_CACHE_KEY);
       if (cached) {
         this.lastKnownLocation = JSON.parse(cached);
+      } else {
+        // Pre-warm baseline region asynchronously via network IP if no cache exists
+        this.fetchIpLocation().then((ipLoc) => {
+          if (ipLoc && !this.lastKnownLocation.address) {
+            this.lastKnownLocation = ipLoc;
+          }
+        }).catch(() => {});
       }
     } catch {
       // Continue with default
@@ -120,9 +128,15 @@ class LocationServiceImpl {
   async openLocationSettings(): Promise<void> {
     if (Platform.OS === 'android') {
       try {
+        if (GuardianLocation?.openLocationSettings) {
+          await GuardianLocation.openLocationSettings();
+          return;
+        }
         await Linking.sendIntent('android.settings.LOCATION_SOURCE_SETTINGS');
       } catch {
-        await Linking.openSettings();
+        try {
+          await Linking.openSettings();
+        } catch {}
       }
     } else {
       await Linking.openSettings();
@@ -130,15 +144,57 @@ class LocationServiceImpl {
   }
 
   /**
-   * Fetch address details from coordinates using OpenStreetMap reverse geocoding
+   * Fetch address details from coordinates using multi-tier reverse geocoding:
+   * Tier 1: BigDataCloud Reverse Geocode (Instant, high accuracy for Indian cities/localities)
+   * Tier 2: OpenStreetMap Nominatim
    */
   async reverseGeocode(lat: number, lon: number): Promise<Partial<LocationCoords>> {
+    // 1. Tier 1: BigDataCloud (Sub-second response, detailed locality in India)
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 2500);
 
-      const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`;
-      const res = await fetch(url, {
+      const bdcUrl = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`;
+      const res = await fetch(bdcUrl, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        const city = data.city || data.locality || data.principalSubdivision || '';
+        const locality = data.locality && data.locality !== city ? data.locality : '';
+        const region = data.principalSubdivision || '';
+        const country = data.countryName || 'India';
+
+        let fullAddress = '';
+        if (locality && city && locality !== city) {
+          fullAddress = `${locality}, ${city}`;
+        } else if (city && region) {
+          fullAddress = `${city}, ${region}`;
+        } else {
+          fullAddress = city || region || `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+        }
+
+        if (city || region) {
+          return {
+            city: city || undefined,
+            subLocality: locality || undefined,
+            region: region || undefined,
+            country: country || undefined,
+            address: fullAddress || undefined,
+          };
+        }
+      }
+    } catch {
+      // Fall through to Nominatim
+    }
+
+    // 2. Tier 2: OpenStreetMap Nominatim Reverse Geocoding
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+      const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&addressdetails=1`;
+      const res = await fetch(nomUrl, {
         headers: { 'User-Agent': 'GuardianSafetyApp/1.0' },
         signal: controller.signal,
       });
@@ -157,24 +213,29 @@ class LocationServiceImpl {
 
         return {
           city: city || undefined,
+          subLocality: suburb || undefined,
           region: region || undefined,
           country: country || undefined,
           address: fullAddress || undefined,
         };
       }
     } catch {
-      // Ignore reverse geocode network failures
+      // Tolerated
     }
-    return {};
+
+    return {
+      address: `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`,
+    };
   }
 
   /**
-   * Fetch current location using network IP geolocation
+   * Fetch current location using network IP geolocation (fast fallback when GPS unavailable)
    */
-  private async fetchIpLocation(): Promise<LocationCoords | null> {
+  async fetchIpLocation(): Promise<LocationCoords | null> {
+    // Primary: ipwho.is
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
 
       const res = await fetch('https://ipwho.is/', {
         signal: controller.signal,
@@ -184,61 +245,127 @@ class LocationServiceImpl {
       if (res.ok) {
         const data = await res.json();
         if (data && data.success !== false && data.latitude && data.longitude) {
+          const lat = parseFloat(data.latitude);
+          const lon = parseFloat(data.longitude);
+          const city = data.city || '';
+          const region = data.region || 'Maharashtra';
+          const country = data.country || 'India';
+          const address = city ? `${city}, ${region}` : `${region}, ${country}`;
+
           return {
-            latitude: parseFloat(data.latitude),
-            longitude: parseFloat(data.longitude),
-            accuracy: 50,
+            latitude: lat,
+            longitude: lon,
+            accuracy: 80,
             timestamp: Date.now(),
-            city: data.city || 'Pune',
-            region: data.region || 'Maharashtra',
-            country: data.country || 'India',
-            address: `${data.city || 'Pune'}, ${data.region || 'Maharashtra'}, ${data.country || 'India'}`,
+            city: city || undefined,
+            region: region || undefined,
+            country: country || undefined,
+            address: address || undefined,
           };
         }
       }
     } catch {
-      // Try secondary endpoint
-      try {
-        const res2 = await fetch('https://ipapi.co/json/');
-        if (res2.ok) {
-          const data2 = await res2.json();
-          if (data2 && data2.latitude && data2.longitude) {
-            return {
-              latitude: parseFloat(data2.latitude),
-              longitude: parseFloat(data2.longitude),
-              accuracy: 50,
-              timestamp: Date.now(),
-              city: data2.city || 'Pune',
-              region: data2.region || 'Maharashtra',
-              country: data2.country_name || 'India',
-              address: `${data2.city || 'Pune'}, ${data2.region || 'Maharashtra'}`,
-            };
-          }
-        }
-      } catch {
-        // Fallback failed
-      }
+      // Fall through to secondary
     }
+
+    // Secondary: ipapi.co
+    try {
+      const controller2 = new AbortController();
+      const timeoutId2 = setTimeout(() => controller2.abort(), 3000);
+
+      const res2 = await fetch('https://ipapi.co/json/', {
+        signal: controller2.signal,
+      });
+      clearTimeout(timeoutId2);
+
+      if (res2.ok) {
+        const data2 = await res2.json();
+        if (data2 && data2.latitude && data2.longitude) {
+          const lat = parseFloat(data2.latitude);
+          const lon = parseFloat(data2.longitude);
+          const city = data2.city || '';
+          const region = data2.region || 'Maharashtra';
+          const country = data2.country_name || 'India';
+          const address = city ? `${city}, ${region}` : `${region}, ${country}`;
+
+          return {
+            latitude: lat,
+            longitude: lon,
+            accuracy: 80,
+            timestamp: Date.now(),
+            city: city || undefined,
+            region: region || undefined,
+            country: country || undefined,
+            address: address || undefined,
+          };
+        }
+      }
+    } catch {
+      // Fallback failed
+    }
+
     return null;
   }
 
   /**
-   * Get the current device coordinates using native Android GPS hardware first
+   * Get the current device coordinates:
+   * 1. Requests permission automatically if not yet granted
+   * 2. Uses Native Android Google Play Services Fused Location + GPS sensors
+   * 3. Reverse geocodes coordinates to human address
+   * 4. Seamlessly falls back to IP geolocation if GPS is unavailable
    */
-  async getCurrentLocation(): Promise<LocationCoords> {
-    // 1. Check if permission has been granted without aggressively prompting
-    const hasPerm = await this.checkPermission();
-    if (!hasPerm && Platform.OS === 'android') {
-      return this.lastKnownLocation;
+  async getCurrentLocation(options?: {
+    forceFresh?: boolean;
+    autoRequestPerm?: boolean;
+  }): Promise<LocationCoords> {
+    const autoRequest = options?.autoRequestPerm !== false;
+
+    // 1. Check or Request Permission
+    let hasPerm = await this.checkPermission();
+    if (!hasPerm && autoRequest && Platform.OS === 'android') {
+      hasPerm = await this.requestPermission();
     }
 
-    // 2. Primary: Use Native Android GPS Module directly from hardware sensor
-    if (Platform.OS === 'android' && GuardianLocation?.getCurrentLocation) {
+    // 2. Primary: Native Android Fused Location & GPS
+    if (hasPerm && Platform.OS === 'android' && GuardianLocation?.getCurrentLocation) {
       try {
         const nativeLoc = await GuardianLocation.getCurrentLocation();
-        if (nativeLoc && typeof nativeLoc.latitude === 'number' && typeof nativeLoc.longitude === 'number') {
-          const city = nativeLoc.city || nativeLoc.subLocality || '';
-          const address = nativeLoc.address || (nativeLoc.subLocality ? `${nativeLoc.subLocality}, ${nativeLoc.city || ''}` : nativeLoc.city);
+        if (
+          nativeLoc &&
+          typeof nativeLoc.latitude === 'number' &&
+          typeof nativeLoc.longitude === 'number'
+        ) {
+          let city = nativeLoc.city || nativeLoc.subLocality || '';
+          let subLocality = nativeLoc.subLocality || '';
+          let region = nativeLoc.region || '';
+          let country = nativeLoc.country || '';
+          let address = nativeLoc.address || (subLocality ? `${subLocality}, ${city}` : city);
+
+          // If native Android Geocoder did not return address/city, run fast multi-tier reverse geocode
+          if (!city || !address) {
+            try {
+              const geoInfo = await Promise.race([
+                this.reverseGeocode(nativeLoc.latitude, nativeLoc.longitude),
+                new Promise<Partial<LocationCoords>>((res) =>
+                  setTimeout(() => res({}), 2600)
+                ),
+              ]);
+
+              if (geoInfo) {
+                city = city || geoInfo.city || '';
+                subLocality = subLocality || geoInfo.subLocality || '';
+                region = region || geoInfo.region || '';
+                country = country || geoInfo.country || '';
+                address = address || geoInfo.address || '';
+              }
+            } catch {}
+          }
+
+          if (!address) {
+            address = city
+              ? `${city}, ${region || 'India'}`
+              : `${nativeLoc.latitude.toFixed(4)}°, ${nativeLoc.longitude.toFixed(4)}°`;
+          }
 
           const coords: LocationCoords = {
             latitude: nativeLoc.latitude,
@@ -246,85 +373,22 @@ class LocationServiceImpl {
             accuracy: nativeLoc.accuracy || 10,
             timestamp: nativeLoc.timestamp || Date.now(),
             city: city || undefined,
-            region: nativeLoc.region || undefined,
-            country: nativeLoc.country || undefined,
+            subLocality: subLocality || undefined,
+            region: region || undefined,
+            country: country || undefined,
             address: address || undefined,
           };
-
-          // If Android Geocoder didn't return city/address, reverse geocode via Nominatim in background
-          if (!coords.city && !coords.address) {
-            this.reverseGeocode(coords.latitude, coords.longitude)
-              .then((geoInfo) => {
-                if (geoInfo) {
-                  Object.assign(this.lastKnownLocation, geoInfo);
-                  StorageService.setItem(LOCATION_CACHE_KEY, JSON.stringify(this.lastKnownLocation)).catch(() => {});
-                }
-              })
-              .catch(() => {});
-          }
 
           this.lastKnownLocation = coords;
           await StorageService.setItem(LOCATION_CACHE_KEY, JSON.stringify(coords));
           return coords;
         }
       } catch (nativeErr) {
-        console.warn('Native GPS lookup error, checking fallbacks:', nativeErr);
+        console.warn('Native GPS lookup error, checking IP geolocation fallback:', nativeErr);
       }
     }
 
-    // 3. Secondary: Try JS geolocation if available
-    const gpsLocation = await new Promise<LocationCoords | null>((resolve) => {
-      const globalNav = (typeof globalThis !== 'undefined'
-        ? (globalThis as unknown as { navigator?: { geolocation?: any } }).navigator
-        : undefined);
-
-      if (globalNav && globalNav.geolocation) {
-        let resolved = false;
-        const timer = setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            resolve(null);
-          }
-        }, 3000);
-
-        globalNav.geolocation.getCurrentPosition(
-          (position: any) => {
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(timer);
-              resolve({
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude,
-                accuracy: position.coords.accuracy || 10,
-                timestamp: position.timestamp || Date.now(),
-              });
-            }
-          },
-          () => {
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(timer);
-              resolve(null);
-            }
-          },
-          { enableHighAccuracy: true, timeout: 3000, maximumAge: 30000 }
-        );
-      } else {
-        resolve(null);
-      }
-    });
-
-    if (gpsLocation) {
-      const geoInfo = await this.reverseGeocode(gpsLocation.latitude, gpsLocation.longitude);
-      this.lastKnownLocation = {
-        ...gpsLocation,
-        ...geoInfo,
-      };
-      await StorageService.setItem(LOCATION_CACHE_KEY, JSON.stringify(this.lastKnownLocation));
-      return this.lastKnownLocation;
-    }
-
-    // 4. Tertiary: Resolve via live IP geolocation
+    // 3. Secondary: Network IP Geolocation (Real regional city/state)
     const ipLocation = await this.fetchIpLocation();
     if (ipLocation) {
       this.lastKnownLocation = ipLocation;
@@ -332,7 +396,7 @@ class LocationServiceImpl {
       return this.lastKnownLocation;
     }
 
-    // 5. Fallback to cached coordinates
+    // 4. Fallback to cached coordinates
     return this.lastKnownLocation;
   }
 
@@ -345,7 +409,7 @@ class LocationServiceImpl {
   }
 
   /**
-   * Formats coordinates into standard geographical representation (e.g. "18.5204° N, 73.8567° E")
+   * Formats coordinates into standard geographical representation (e.g. "21.1463° N, 79.0849° E")
    */
   formatCoordinates(coords: LocationCoords): string {
     const latDir = coords.latitude >= 0 ? 'N' : 'S';
@@ -354,11 +418,14 @@ class LocationServiceImpl {
   }
 
   /**
-   * Formats human-friendly location string (e.g. "Shaniwar Peth, Pune" or "Pune, Maharashtra")
+   * Formats human-friendly location string (e.g. "Ramdaspeth, Nagpur" or "Nagpur, Maharashtra")
    */
   formatLocationName(coords: LocationCoords): string {
     if (coords.address) {
       return coords.address;
+    }
+    if (coords.subLocality && coords.city) {
+      return `${coords.subLocality}, ${coords.city}`;
     }
     if (coords.city && coords.region) {
       return `${coords.city}, ${coords.region}`;

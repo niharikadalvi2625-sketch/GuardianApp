@@ -1,6 +1,6 @@
 import { NativeModules } from 'react-native';
 
-const { GuardianAlert } = NativeModules;
+const { GuardianAlert, GuardianSQLite } = NativeModules;
 
 class StorageServiceImpl {
   private memoryCache: Map<string, string> = new Map();
@@ -11,7 +11,18 @@ class StorageServiceImpl {
       return this.memoryCache.get(key) ?? null;
     }
 
-    // Try native Android SharedPreferences for permanent on-disk persistence
+    // Try SQLite Database table `kv_store`
+    if (GuardianSQLite && typeof GuardianSQLite.sqliteGetItem === 'function') {
+      try {
+        const sqlVal = await GuardianSQLite.sqliteGetItem(key);
+        if (sqlVal !== null && sqlVal !== undefined) {
+          this.memoryCache.set(key, sqlVal);
+          return sqlVal;
+        }
+      } catch {}
+    }
+
+    // Fall back to SharedPreferences
     if (GuardianAlert && typeof GuardianAlert.getStorageItem === 'function') {
       try {
         const val = await GuardianAlert.getStorageItem(key);
@@ -30,6 +41,14 @@ class StorageServiceImpl {
   async setItem(key: string, value: string): Promise<void> {
     this.memoryCache.set(key, value);
 
+    // Persist to local SQLite table `kv_store`
+    if (GuardianSQLite && typeof GuardianSQLite.sqliteSetItem === 'function') {
+      try {
+        await GuardianSQLite.sqliteSetItem(key, value);
+      } catch {}
+    }
+
+    // Also persist to SharedPreferences
     if (GuardianAlert && typeof GuardianAlert.setStorageItem === 'function') {
       try {
         await GuardianAlert.setStorageItem(key, value);

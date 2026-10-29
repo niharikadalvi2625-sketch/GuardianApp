@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -38,40 +38,29 @@ import JourneySentinelModal from '../components/JourneySentinelModal';
 import AuthModal from '../components/AuthModal';
 import FirstAidModal from '../components/FirstAidModal';
 import PowerTriggerCountdownModal from '../components/PowerTriggerCountdownModal';
+import GuardianResponseBanner from '../components/GuardianResponseBanner';
+import GuardianSimulationModal from '../components/GuardianSimulationModal';
+import {
+  DemoModeService,
+  SimulatedSosPayload,
+  GuardianAcknowledgment,
+} from '../services/demoModeService';
 import { HardwareTriggerService } from '../services/hardwareTriggerService';
+import { useTheme } from '../context/ThemeContext';
+import { ThemeColors } from '../theme/colors';
 
 const { width } = Dimensions.get('window');
-const SOS_BUTTON_SIZE = width * 0.32;
-
-const THEME = {
-  primary: '#E63946',
-  primaryDark: '#B71C1C',
-  primaryGlow: 'rgba(230, 57, 70, 0.22)',
-  secondary: '#1D3557',
-  background: '#F8FAFC',
-  cardBg: '#FFFFFF',
-  textPrimary: '#0F172A',
-  textSecondary: '#64748B',
-  textLight: '#94A3B8',
-  safeGreen: '#16A34A',
-  safeGreenBg: '#F0FDF4',
-  safeGreenBorder: '#BBF7D0',
-  blue: '#2563EB',
-  blueBg: '#EFF6FF',
-  amber: '#D97706',
-  amberBg: '#FFFBEB',
-  border: '#E2E8F0',
-  rose: '#E11D48',
-  roseBg: '#FFF1F2',
-  purple: '#7C3AED',
-  purpleBg: '#F5F3FF',
-};
+const SOS_BUTTON_SIZE = Math.min(width * 0.42, 170);
 
 interface HomeScreenProps {
   navigation: HomeScreenNavigationProp;
 }
 
 export default function HomeScreen({ navigation }: HomeScreenProps) {
+  const { theme, isDark } = useTheme();
+  const THEME = theme;
+  const styles = useMemo(() => getStyles(theme), [theme]);
+
   const [coords, setCoords] = useState<LocationCoords | null>(null);
   const [loadingLocation, setLoadingLocation] = useState<boolean>(false);
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -96,12 +85,25 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [syncState, setSyncState] = useState<CloudSyncState | null>(null);
 
+  // Examiner Presentation Demo Mode & Guardian Simulation State
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(true);
+  const [simulatedPayload, setSimulatedPayload] = useState<SimulatedSosPayload | null>(null);
+  const [guardianSimVisible, setGuardianSimVisible] = useState<boolean>(false);
+  const [guardianAck, setGuardianAck] = useState<GuardianAcknowledgment | null>(null);
+
   // Disaster & News State
   const [assessment, setAssessment] = useState<DisasterThreatAssessment | null>(null);
   const [newsList, setNewsList] = useState<SafetyNewsItem[]>([]);
   const [newsFilter, setNewsFilter] = useState<'all' | 'disaster' | 'women_safety' | 'weather'>('all');
 
+  // Multi-Ring Pulse Animation & Tactile Micro-interactions
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const pulseWave = useRef(new Animated.Value(1)).current;
+  const sosScaleAnim = useRef(new Animated.Value(1)).current;
+  const armedBeaconAnim = useRef(new Animated.Value(0.4)).current;
+  const radarDotAnim = useRef(new Animated.Value(0.3)).current;
+  const screenFadeAnim = useRef(new Animated.Value(0)).current;
+  const screenSlideAnim = useRef(new Animated.Value(16)).current;
 
   useEffect(() => {
     loadData();
@@ -119,26 +121,113 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
       setSyncState(state);
     });
 
-    const pulse = Animated.loop(
+    DemoModeService.init().then((enabled) => {
+      setIsDemoMode(enabled);
+      setGuardianAck(DemoModeService.getCurrentAcknowledgment());
+    });
+
+    const unsubDemoState = DemoModeService.onStateChanged((enabled) => {
+      setIsDemoMode(enabled);
+    });
+
+    const unsubDemoAlert = DemoModeService.onGuardianAlertReceived((payload) => {
+      setSimulatedPayload(payload);
+    });
+
+    const unsubDemoAck = DemoModeService.onGuardianAcknowledged((ack) => {
+      setGuardianAck(ack);
+    });
+
+    // Screen entrance animation
+    Animated.parallel([
+      Animated.timing(screenFadeAnim, {
+        toValue: 1,
+        duration: 450,
+        useNativeDriver: true,
+      }),
+      Animated.spring(screenSlideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Dual-wave pulsating shockwave
+    const pulseLoop = Animated.loop(
+      Animated.parallel([
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.15,
+            duration: 1100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1100,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.sequence([
+          Animated.timing(pulseWave, {
+            toValue: 1.35,
+            duration: 1400,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseWave, {
+            toValue: 1,
+            duration: 1400,
+            useNativeDriver: true,
+          }),
+        ]),
+      ])
+    );
+    pulseLoop.start();
+
+    // Breathing pulse on ARMED badge
+    const armedBeaconLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.12,
-          duration: 1200,
+        Animated.timing(armedBeaconAnim, {
+          toValue: 1,
+          duration: 900,
           useNativeDriver: true,
         }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1200,
+        Animated.timing(armedBeaconAnim, {
+          toValue: 0.35,
+          duration: 900,
           useNativeDriver: true,
         }),
       ])
     );
-    pulse.start();
+    armedBeaconLoop.start();
+
+    // Blinking radar dot loop
+    const radarDotLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(radarDotAnim, {
+          toValue: 1,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+        Animated.timing(radarDotAnim, {
+          toValue: 0.25,
+          duration: 700,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    radarDotLoop.start();
+
     return () => {
-      pulse.stop();
+      pulseLoop.stop();
+      armedBeaconLoop.stop();
+      radarDotLoop.stop();
       unsubAuth();
       unsubSync();
       unsubPower();
+      unsubDemoState();
+      unsubDemoAlert();
+      unsubDemoAck();
     };
   }, []);
 
@@ -166,7 +255,19 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     setLoadingLocation(true);
     try {
       const hasPerm = await LocationService.checkPermission();
-      if (hasPerm) {
+      if (!hasPerm) {
+        const granted = await LocationService.requestPermission();
+        if (!granted) {
+          Alert.alert(
+            'Location Permission Required',
+            'Guardian requires location access to pinpoint your emergency coordinates and locate nearby safe havens.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Settings', onPress: () => LocationService.openLocationSettings() },
+            ]
+          );
+        }
+      } else {
         const isEnabled = await LocationService.isLocationEnabled();
         if (!isEnabled) {
           Alert.alert(
@@ -189,6 +290,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   };
 
   const handleCall = (num: string) => {
+    AlertService.triggerHaptic();
     SosService.dialEmergencyServices(num);
   };
 
@@ -226,10 +328,22 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
     );
   };
 
+  const handleToggleDemoMode = async () => {
+    AlertService.triggerHaptic();
+    const next = await DemoModeService.toggleDemoMode();
+    setIsDemoMode(next);
+    Alert.alert(
+      next ? '🎓 Presentation Demo Mode ON' : '⚡ Live Emergency Mode ON',
+      next
+        ? 'Examiner Demo Mode is active! Triggering SOS will simulate cellular transmission and open the Guardian Response Console without needing real SIM SMS balance.'
+        : 'Live mode active! SOS alerts will trigger native hardware actions, direct phone calls, and real SMS dispatch.'
+    );
+  };
+
   const handleDirectSosPress = () => {
     AlertService.triggerHaptic();
 
-    if (isDefaultPhone) {
+    if (isDefaultPhone && !isDemoMode) {
       Alert.alert(
         'Set Parents Mobile Number',
         'Please enter your parents or spouse mobile number so the emergency SOS with live GPS reaches them directly.',
@@ -258,214 +372,494 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <StatusBar barStyle="dark-content" backgroundColor={THEME.background} />
+      <StatusBar barStyle={theme.statusBarStyle} backgroundColor={theme.background} />
 
       <ScrollView
         style={styles.mainScrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={true}
+        showsVerticalScrollIndicator={false}
         nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
         bounces={true}
-        overScrollMode="always"
       >
-        {/* Top Header: Greeting + Status */}
-        <View style={styles.header}>
-          <View style={styles.headerUserRow}>
-            <Image
-              source={require('../assets/logo.png')}
-              style={styles.headerLogoBadge}
-              resizeMode="contain"
-            />
-            <View style={styles.headerTextCol}>
-              <Text style={styles.headerGreeting}>Stay Protected,</Text>
-              <Text style={styles.headerUserName}>
-                {currentUser?.name || (profile ? profile.name : 'Guardian User')}
+        <Animated.View style={{ flex: 1, opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }}>
+        {/* ========================================================
+            1. TOP COMMAND BAR: IDENTITY & SYSTEM STATUS
+        ======================================================== */}
+        <View style={styles.commandHeader}>
+          <View style={styles.commandBrandRow}>
+            <View style={styles.logoBadgeContainer}>
+              <Image
+                source={require('../assets/logo.png')}
+                style={styles.logoBadge}
+                resizeMode="contain"
+              />
+            </View>
+            <View style={styles.brandTitleCol}>
+              <Text style={styles.brandTag}>
+                {isDark ? 'TACTICAL SYSTEM • ONLINE' : 'GUARDIAN SHIELD • ACTIVE'}
+              </Text>
+              <Text style={styles.brandTitle} numberOfLines={1}>
+                {currentUser?.name || (profile ? profile.name : 'Guardian Agent')}
               </Text>
             </View>
           </View>
-          <View style={styles.headerRightRow}>
+
+          <View style={styles.commandRightActions}>
+            {/* Quick 1-Tap Examiner Demo Mode Switcher */}
+            <TouchableOpacity
+              style={[
+                styles.demoTogglePill,
+                isDemoMode && styles.demoTogglePillActive,
+              ]}
+              onPress={handleToggleDemoMode}
+              activeOpacity={0.8}
+              accessibilityLabel="Toggle Presentation Demo Mode"
+            >
+              <Text style={[styles.demoToggleText, isDemoMode && styles.demoToggleTextActive]}>
+                {isDemoMode ? '🎓 DEMO' : '⚡ LIVE'}
+              </Text>
+            </TouchableOpacity>
+
             {currentUser && currentUser.provider !== 'guest' ? (
               <TouchableOpacity
-                style={styles.cloudSyncPill}
+                style={styles.cloudStatusPill}
                 onPress={() => navigation.navigate('ProfileTab')}
                 activeOpacity={0.8}
               >
-                <Text style={styles.cloudSyncPillIcon}>☁️</Text>
-                <Text style={styles.cloudSyncPillText}>
-                  {syncState?.syncStatus === 'syncing' ? 'SYNCING...' : 'SYNCED'}
+                <Text style={styles.cloudStatusIcon}>☁️</Text>
+                <Text style={styles.cloudStatusText}>
+                  {syncState?.syncStatus === 'syncing' ? 'SYNC' : 'LIVE'}
                 </Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
-                style={styles.cloudSignInPill}
+                style={styles.cloudSyncPromptPill}
                 onPress={() => setAuthModalVisible(true)}
                 activeOpacity={0.8}
               >
-                <Text style={styles.cloudSignInPillIcon}>🌐</Text>
-                <Text style={styles.cloudSignInPillText}>SYNC GPS</Text>
+                <Text style={styles.cloudSyncPromptText}>SYNC GPS</Text>
               </TouchableOpacity>
             )}
-            <View style={styles.shieldPill}>
-              <View style={styles.shieldPulseDot} />
-              <Text style={styles.shieldPillText}>SHIELD ON</Text>
+
+            <View style={styles.armedPill}>
+              <Animated.View
+                style={[
+                  styles.armedDot,
+                  {
+                    opacity: armedBeaconAnim,
+                    transform: [
+                      {
+                        scale: armedBeaconAnim.interpolate({
+                          inputRange: [0.35, 1],
+                          outputRange: [0.85, 1.3],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              />
+              <Text style={styles.armedText}>ARMED</Text>
             </View>
           </View>
         </View>
 
-        {/* Compact Location Strip */}
-        <View style={styles.locationStrip}>
-          <Text style={styles.locationPinIcon}>📍</Text>
-          <View style={styles.locationTextCol}>
-            <Text style={styles.locationLabel}>CURRENT LOCATION</Text>
-            <Text style={styles.locationValue} numberOfLines={1}>
-              {coords ? LocationService.formatLocationName(coords) : 'Detecting GPS position...'}
-            </Text>
-          </View>
+        {/* ========================================================
+            2. TELEMETRY STRIP (GPS ANCHOR & LINKED GUARDIAN)
+        ======================================================== */}
+        <View style={styles.telemetryCard}>
+          {/* GPS Location Left Segment */}
           <TouchableOpacity
-            style={styles.refreshBtn}
+            style={styles.telemetryLocationCol}
             onPress={refreshLocation}
-            activeOpacity={0.7}
+            activeOpacity={0.75}
           >
-            {loadingLocation ? (
-              <ActivityIndicator size="small" color="#2563EB" />
-            ) : (
-              <Text style={styles.refreshBtnText}>🔄</Text>
+            <View style={styles.telemetryIconBadge}>
+              <Text style={styles.telemetryPinIcon}>📍</Text>
+            </View>
+            <View style={styles.telemetryTextCol}>
+              <Text style={styles.telemetryLabel}>LIVE GPS ANCHOR</Text>
+              <Text style={styles.telemetryValue} numberOfLines={1}>
+                {coords ? LocationService.formatLocationName(coords) : 'Acquiring GPS fix...'}
+              </Text>
+            </View>
+            {loadingLocation && (
+              <ActivityIndicator size="small" color={THEME.blue} style={{ marginLeft: 4 }} />
             )}
           </TouchableOpacity>
-        </View>
 
-        {/* 1. HERO SOS CENTER CARD */}
-        <View style={styles.sosCard}>
-          {/* Linked Parent Bar */}
+          <View style={styles.telemetryDivider} />
+
+          {/* Linked Parent Right Segment */}
           <TouchableOpacity
-            style={[
-              styles.guardianLinkBar,
-              isDefaultPhone && styles.guardianLinkBarUnset,
-            ]}
+            style={styles.telemetryParentCol}
             onPress={handleOpenParentModal}
-            activeOpacity={0.85}
+            activeOpacity={0.75}
           >
-            <Text style={styles.guardianLinkIcon}>{isDefaultPhone ? '⚠️' : '🛡️'}</Text>
-            <View style={styles.guardianLinkTextCol}>
-              <Text style={styles.guardianLinkTag}>
-                {isDefaultPhone ? 'DIRECT SOS RECIPIENT NOT SET' : 'DIRECT SOS LINKED TO'}
-              </Text>
-              <Text style={styles.guardianLinkName} numberOfLines={1}>
-                {isDefaultPhone
-                  ? 'Tap to link Parents / Spouse phone'
-                  : `${primaryContact?.name} • ${primaryContact?.phone}`}
-              </Text>
+            <View style={styles.telemetryIconBadge}>
+              <Text style={styles.telemetryParentIcon}>{isDefaultPhone ? '⚠️' : '🛡️'}</Text>
             </View>
-            <View style={styles.guardianEditPill}>
-              <Text style={styles.guardianEditText}>{isDefaultPhone ? 'SET' : 'EDIT'}</Text>
+            <View style={styles.telemetryTextCol}>
+              <Text style={styles.telemetryLabel}>EMERGENCY RECIPIENT</Text>
+              <Text
+                style={[
+                  styles.telemetryValue,
+                  isDefaultPhone && { color: THEME.amber },
+                ]}
+                numberOfLines={1}
+              >
+                {isDefaultPhone ? 'Unlinked (Tap)' : primaryContact?.name || 'Parents'}
+              </Text>
             </View>
           </TouchableOpacity>
+        </View>
 
-          {/* Glowing SOS Button */}
-          <View style={styles.sosButtonContainer}>
+        {/* ========================================================
+            2.5. GUARDIAN ACKNOWLEDGMENT (TWO-WAY RESPONSE FEED)
+        ======================================================== */}
+        {guardianAck && (
+          <View
+            style={[
+              styles.guardianAckBanner,
+              {
+                backgroundColor: isDark ? '#111827' : '#FFFFFF',
+                borderColor: guardianAck.policeEscalated ? THEME.primary : THEME.emerald,
+              },
+            ]}
+          >
+            <View style={styles.guardianAckHeader}>
+              <View style={styles.guardianAckBadgeRow}>
+                <View
+                  style={[
+                    styles.guardianAckDot,
+                    {
+                      backgroundColor: guardianAck.policeEscalated
+                        ? THEME.primary
+                        : THEME.emerald,
+                    },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.guardianAckTitle,
+                    {
+                      color: guardianAck.policeEscalated
+                        ? THEME.primary
+                        : THEME.emerald,
+                    },
+                  ]}
+                >
+                  {guardianAck.policeEscalated
+                    ? '🚓 POLICE PATROL DISPATCHED'
+                    : '🟢 GUARDIAN ON THE WAY'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => DemoModeService.clearActiveDemo()}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Text style={[styles.guardianAckClose, { color: THEME.textMuted }]}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.guardianAckNote, { color: THEME.textPrimary }]}>
+              "{guardianAck.message}"
+            </Text>
+
+            <View style={styles.guardianAckMetaRow}>
+              <Text style={[styles.guardianAckMetaText, { color: THEME.textSecondary }]}>
+                ⏱️ ETA ~{guardianAck.etaMinutes} mins • {guardianAck.guardianName}
+              </Text>
+              <TouchableOpacity
+                style={[styles.guardianAckInspectBtn, { backgroundColor: isDark ? 'rgba(59, 130, 246, 0.15)' : '#EFF6FF', borderColor: THEME.blue }]}
+                onPress={() => setGuardianSimVisible(true)}
+              >
+                <Text style={[styles.guardianAckInspectText, { color: THEME.blue }]}>
+                  View Parent Console →
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* ========================================================
+            3. HERO SOS REACTOR (TACTICAL EMERGENCY CORE)
+        ======================================================== */}
+        <View style={styles.heroSosSection}>
+          <View style={styles.reactorContainer}>
+            {/* Outer Shockwave 2 */}
             <Animated.View
               style={[
-                styles.sosOuterGlow,
+                styles.reactorShockwaveOuter,
                 {
-                  transform: [{ scale: pulseAnim }],
+                  transform: [{ scale: pulseWave }],
+                  opacity: pulseWave.interpolate({
+                    inputRange: [1, 1.35],
+                    outputRange: [0.65, 0.15],
+                  }),
                 },
               ]}
             />
-            <TouchableOpacity
-              activeOpacity={0.88}
-              style={styles.sosButton}
-              onPress={handleDirectSosPress}
-              accessibilityLabel="Emergency SOS Button"
-              accessibilityHint="Tap to instantly send live GPS to parents and emergency contacts"
-              accessibilityRole="button"
-            >
-              <Text style={styles.sosText}>SOS</Text>
-              <Text style={styles.sosSubtext}>TAP FOR HELP</Text>
-            </TouchableOpacity>
+            {/* Inner Shockwave 1 */}
+            <Animated.View
+              style={[
+                styles.reactorShockwaveInner,
+                {
+                  transform: [{ scale: pulseAnim }],
+                  opacity: pulseAnim.interpolate({
+                    inputRange: [1, 1.15],
+                    outputRange: [0.85, 0.35],
+                  }),
+                },
+              ]}
+            />
+
+            {/* Main Interactive Button with Spring Tactile Feedback */}
+            <Animated.View style={{ transform: [{ scale: sosScaleAnim }] }}>
+              <TouchableOpacity
+                activeOpacity={0.9}
+                style={styles.sosReactorButton}
+                onPress={handleDirectSosPress}
+                onPressIn={() => {
+                  Animated.spring(sosScaleAnim, {
+                    toValue: 0.91,
+                    useNativeDriver: true,
+                  }).start();
+                }}
+                onPressOut={() => {
+                  Animated.spring(sosScaleAnim, {
+                    toValue: 1,
+                    friction: 3.5,
+                    tension: 45,
+                    useNativeDriver: true,
+                  }).start();
+                }}
+                accessibilityLabel="Emergency SOS Dispatch Button"
+                accessibilityHint="Instant 1-tap live distress broadcast"
+                accessibilityRole="button"
+              >
+                <View style={styles.sosCoreRing}>
+                  <Text style={styles.sosCoreIcon}>⚡</Text>
+                  <Text style={styles.sosCoreText}>SOS</Text>
+                  <Text style={styles.sosCoreSub}>DISPATCH</Text>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
           </View>
 
-          <Text style={styles.sosInstruction}>
-            {isDefaultPhone
-              ? 'Tap "SET" above so your live location immediately goes to parents'
-              : `1-Tap sends live GPS distress SMS to ${primaryContact?.name}`}
+          {/* Status & Subtitle Telemetry */}
+          <View style={styles.sosTelemetryBanner}>
+            <Animated.View
+              style={[
+                styles.sosLiveRadarDot,
+                {
+                  opacity: radarDotAnim,
+                  transform: [
+                    {
+                      scale: radarDotAnim.interpolate({
+                        inputRange: [0.25, 1],
+                        outputRange: [0.85, 1.3],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+            <Text style={styles.sosTelemetryTitle}>
+              {isDefaultPhone
+                ? 'LINK PARENT PHONE TO ENABLE DIRECT 1-TAP GPS SMS'
+                : `1-TAP BROADCASTS LIVE GPS SMS TO ${primaryContact?.name?.toUpperCase()}`}
+            </Text>
+          </View>
+
+          <Text style={styles.powerHardwareNotice}>
+            ⚡ Triple-click Power button also triggers emergency dispatch
           </Text>
         </View>
 
-        {/* 2. 1-TAP EMERGENCY HOTLINES */}
-        <View style={styles.hotlinesSection}>
-          <View style={styles.hotlinesRow}>
+        {/* ========================================================
+            4. 1-TAP EMERGENCY HOTLINES (TACTICAL DIAL MATRIX)
+        ======================================================== */}
+        <View style={styles.hotlinesContainer}>
+          <Text style={styles.groupHeaderTitle}>EMERGENCY DISPATCH SERVICES</Text>
+
+          <View style={styles.hotlinesMatrix}>
             <TouchableOpacity
-              style={[styles.hotlinePill, { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}
+              style={[styles.hotlineMatrixBtn, { borderColor: 'rgba(239, 68, 68, 0.4)' }]}
               onPress={() => handleCall('112')}
-              activeOpacity={0.8}
+              activeOpacity={0.78}
             >
-              <Text style={styles.hotlineIcon}>👮</Text>
-              <View>
-                <Text style={[styles.hotlineLabel, { color: '#B91C1C' }]}>Police</Text>
-                <Text style={styles.hotlineNum}>112</Text>
+              <View style={[styles.hotlineBadgeIcon, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                <Text style={styles.hotlineEmoji}>👮</Text>
+              </View>
+              <View style={styles.hotlineInfoCol}>
+                <Text style={styles.hotlineName}>Police</Text>
+                <Text style={[styles.hotlineCode, { color: '#EF4444' }]}>112</Text>
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.hotlinePill, { backgroundColor: '#FFE4E6', borderColor: '#FECDD3' }]}
-              onPress={() => handleCall('1091')}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.hotlineIcon}>👩</Text>
-              <View>
-                <Text style={[styles.hotlineLabel, { color: '#BE123C' }]}>Women</Text>
-                <Text style={styles.hotlineNum}>1091</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.hotlinePill, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}
+              style={[styles.hotlineMatrixBtn, { borderColor: 'rgba(59, 130, 246, 0.4)' }]}
               onPress={() => handleCall('108')}
-              activeOpacity={0.8}
+              activeOpacity={0.78}
             >
-              <Text style={styles.hotlineIcon}>🚑</Text>
-              <View>
-                <Text style={[styles.hotlineLabel, { color: '#1D4ED8' }]}>Medical</Text>
-                <Text style={styles.hotlineNum}>108</Text>
+              <View style={[styles.hotlineBadgeIcon, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+                <Text style={styles.hotlineEmoji}>🚑</Text>
+              </View>
+              <View style={styles.hotlineInfoCol}>
+                <Text style={styles.hotlineName}>Ambulance</Text>
+                <Text style={[styles.hotlineCode, { color: '#3B82F6' }]}>108</Text>
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.hotlinePill, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}
-              onPress={() => handleCall('181')}
-              activeOpacity={0.8}
+              style={[styles.hotlineMatrixBtn, { borderColor: 'rgba(236, 72, 153, 0.4)' }]}
+              onPress={() => handleCall('1091')}
+              activeOpacity={0.78}
             >
-              <Text style={styles.hotlineIcon}>🛡️</Text>
-              <View>
-                <Text style={[styles.hotlineLabel, { color: '#B45309' }]}>Helpline</Text>
-                <Text style={styles.hotlineNum}>181</Text>
+              <View style={[styles.hotlineBadgeIcon, { backgroundColor: 'rgba(236, 72, 153, 0.15)' }]}>
+                <Text style={styles.hotlineEmoji}>👩</Text>
+              </View>
+              <View style={styles.hotlineInfoCol}>
+                <Text style={styles.hotlineName}>Women Helpline</Text>
+                <Text style={[styles.hotlineCode, { color: '#EC4899' }]}>1091</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.hotlineMatrixBtn, { borderColor: 'rgba(245, 158, 11, 0.4)' }]}
+              onPress={() => handleCall('181')}
+              activeOpacity={0.78}
+            >
+              <View style={[styles.hotlineBadgeIcon, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+                <Text style={styles.hotlineEmoji}>🛡️</Text>
+              </View>
+              <View style={styles.hotlineInfoCol}>
+                <Text style={styles.hotlineName}>Crisis Help</Text>
+                <Text style={[styles.hotlineCode, { color: '#F59E0B' }]}>181</Text>
               </View>
             </TouchableOpacity>
           </View>
         </View>
 
-        {/* 3. DISASTER CHANCES & THREAT METER */}
-        {assessment && (
-          <View style={styles.disasterSection}>
-            <View style={styles.sectionHeaderRow}>
-              <View>
-                <Text style={styles.sectionTitle}>Disaster Risk & Chances</Text>
-                <Text style={styles.sectionSubTitle}>Live Regional Climate & Seismic Index</Text>
+        {/* ========================================================
+            5. TACTICAL ACTION BENTO GRID (2x2 DEFENSE ARSENAL)
+        ======================================================== */}
+        <View style={styles.bentoSection}>
+          <Text style={styles.groupHeaderTitle}>TACTICAL DEFENSE ARSENAL</Text>
+
+          <View style={styles.bentoGrid}>
+            {/* Bento 1: Silent SOS / Being Followed */}
+            <TouchableOpacity
+              style={[styles.bentoCard, { borderColor: THEME.primaryDark }]}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                setBeingFollowedVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.bentoHeaderRow}>
+                <View style={[styles.bentoIconBadge, { backgroundColor: 'rgba(239, 68, 68, 0.2)' }]}>
+                  <Text style={styles.bentoIcon}>🚨</Text>
+                </View>
+                <View style={styles.bentoPillTag}>
+                  <Text style={[styles.bentoPillTagText, { color: '#EF4444' }]}>STEALTH</Text>
+                </View>
               </View>
+              <Text style={styles.bentoTitle}>Being Followed</Text>
+              <Text style={styles.bentoSub}>Silent SOS alert & covert police trigger</Text>
+              <Text style={styles.bentoArrow}>Launch ➔</Text>
+            </TouchableOpacity>
+
+            {/* Bento 2: Transit Sentinel (Arrival Timer) */}
+            <TouchableOpacity
+              style={[styles.bentoCard, { borderColor: THEME.emeraldBorder }]}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                setJourneySentinelVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.bentoHeaderRow}>
+                <View style={[styles.bentoIconBadge, { backgroundColor: THEME.emeraldBg }]}>
+                  <Text style={styles.bentoIcon}>⏱️</Text>
+                </View>
+                <View style={[styles.bentoPillTag, { backgroundColor: THEME.emeraldBg }]}>
+                  <Text style={[styles.bentoPillTagText, { color: THEME.emerald }]}>TRANSIT</Text>
+                </View>
+              </View>
+              <Text style={styles.bentoTitle}>Safe Arrival</Text>
+              <Text style={styles.bentoSub}>Night transit timer & automatic beacon</Text>
+              <Text style={[styles.bentoArrow, { color: THEME.emerald }]}>Arm Timer ➔</Text>
+            </TouchableOpacity>
+
+            {/* Bento 3: Fake Decoy Rescue Call */}
+            <TouchableOpacity
+              style={[styles.bentoCard, { borderColor: THEME.amberBorder }]}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                setFakeCallVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.bentoHeaderRow}>
+                <View style={[styles.bentoIconBadge, { backgroundColor: THEME.amberBg }]}>
+                  <Text style={styles.bentoIcon}>📞</Text>
+                </View>
+                <View style={[styles.bentoPillTag, { backgroundColor: THEME.amberBg }]}>
+                  <Text style={[styles.bentoPillTagText, { color: THEME.amber }]}>DECOY</Text>
+                </View>
+              </View>
+              <Text style={styles.bentoTitle}>Fake Rescue Call</Text>
+              <Text style={styles.bentoSub}>Incoming police/parent voice simulation</Text>
+              <Text style={[styles.bentoArrow, { color: THEME.amber }]}>Trigger ➔</Text>
+            </TouchableOpacity>
+
+            {/* Bento 4: Offline First-Aid & Survival Playbooks */}
+            <TouchableOpacity
+              style={[styles.bentoCard, { borderColor: THEME.blueBorder }]}
+              onPress={() => {
+                AlertService.triggerHaptic();
+                setInitialPlaybookId(undefined);
+                setFirstAidModalVisible(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={styles.bentoHeaderRow}>
+                <View style={[styles.bentoIconBadge, { backgroundColor: THEME.blueBg }]}>
+                  <Text style={styles.bentoIcon}>🩺</Text>
+                </View>
+                <View style={[styles.bentoPillTag, { backgroundColor: THEME.blueBg }]}>
+                  <Text style={[styles.bentoPillTagText, { color: THEME.blue }]}>OFFLINE</Text>
+                </View>
+              </View>
+              <Text style={styles.bentoTitle}>First-Aid & CPR</Text>
+              <Text style={styles.bentoSub}>110 BPM metronome & survival protocols</Text>
+              <Text style={[styles.bentoArrow, { color: THEME.blue }]}>Open Guides ➔</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ========================================================
+            6. SITUATIONAL RADAR & DISASTER THREAT METRIC
+        ======================================================== */}
+        {assessment && (
+          <View style={styles.radarSection}>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.groupHeaderTitle}>ENVIRONMENTAL SITUATIONAL RADAR</Text>
               <View
                 style={[
-                  styles.threatBadge,
+                  styles.threatLevelBadge,
                   assessment.overallThreatLevel === 'low'
-                    ? styles.threatBadgeLow
+                    ? styles.threatLevelBadgeLow
                     : assessment.overallThreatLevel === 'moderate'
-                    ? styles.threatBadgeMed
-                    : styles.threatBadgeHigh,
+                    ? styles.threatLevelBadgeMed
+                    : styles.threatLevelBadgeHigh,
                 ]}
               >
                 <Text
                   style={[
-                    styles.threatBadgeText,
+                    styles.threatLevelBadgeText,
                     assessment.overallThreatLevel === 'low'
                       ? styles.threatTextLow
                       : assessment.overallThreatLevel === 'moderate'
@@ -473,237 +867,95 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
                       : styles.threatTextHigh,
                   ]}
                 >
-                  {assessment.overallScorePercent}% CHANCE • {assessment.overallThreatLevel.toUpperCase()}
+                  {assessment.overallScorePercent}% THREAT • {assessment.overallThreatLevel.toUpperCase()}
                 </Text>
               </View>
             </View>
 
-            <View style={styles.disasterCard}>
-              {/* Progress bar representing chance of disaster */}
-              <View style={styles.riskBarTrack}>
+            <View style={styles.radarCard}>
+              {/* Progress Risk Track */}
+              <View style={styles.riskTrack}>
                 <View
                   style={[
-                    styles.riskBarFill,
+                    styles.riskProgress,
                     {
-                      width: `${Math.max(8, assessment.overallScorePercent)}%`,
+                      width: `${Math.max(6, assessment.overallScorePercent)}%`,
                       backgroundColor:
                         assessment.overallThreatLevel === 'low'
-                          ? '#16A34A'
+                          ? THEME.emerald
                           : assessment.overallThreatLevel === 'moderate'
-                          ? '#D97706'
-                          : '#DC2626',
+                          ? THEME.amber
+                          : THEME.primary,
                     },
                   ]}
                 />
               </View>
 
-              <Text style={styles.disasterHeadline}>{assessment.headline}</Text>
-              <Text style={styles.disasterSummary}>{assessment.summary}</Text>
+              <Text style={styles.radarHeadline}>{assessment.headline}</Text>
+              <Text style={styles.radarSummary}>{assessment.summary}</Text>
 
-              {/* 4 Factor Grid */}
-              <View style={styles.factorsGrid}>
+              {/* Factors Quick Matrix */}
+              <View style={styles.factorsRow}>
                 {assessment.factors.map((factor) => (
-                  <View key={factor.id} style={styles.factorCard}>
-                    <View style={styles.factorTopRow}>
-                      <Text style={styles.factorIcon}>{factor.icon}</Text>
-                      <Text style={styles.factorPercent}>{factor.probabilityPercent}%</Text>
-                    </View>
-                    <Text style={styles.factorName} numberOfLines={1}>{factor.name}</Text>
-                    <Text style={styles.factorStatus} numberOfLines={1}>{factor.statusDescription}</Text>
+                  <View key={factor.id} style={styles.factorChip}>
+                    <Text style={styles.factorChipIcon}>{factor.icon}</Text>
+                    <Text style={styles.factorChipName}>{factor.name}</Text>
+                    <Text style={styles.factorChipPercent}>{factor.probabilityPercent}%</Text>
                   </View>
                 ))}
               </View>
 
-              {/* Quick shelter shortcut */}
+              {/* Evac & Shelter Navigation Action */}
               <TouchableOpacity
-                style={styles.shelterShortcutBtn}
+                style={styles.shelterEvacBtn}
                 onPress={() => navigation.navigate('SafeZonesTab')}
-                activeOpacity={0.85}
+                activeOpacity={0.8}
               >
-                <Text style={styles.shelterShortcutIcon}>🏛️</Text>
-                <Text style={styles.shelterShortcutText}>View Verified Safe Shelters & Evacuation Centers</Text>
-                <Text style={styles.shelterShortcutArrow}>➔</Text>
+                <Text style={styles.shelterEvacIcon}>🏛️</Text>
+                <Text style={styles.shelterEvacText}>
+                  Locate Verified Safe Shelters & Evacuation Points
+                </Text>
+                <Text style={styles.shelterEvacArrow}>➔</Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
 
-        {/* 4. WOMEN'S SAFETY SHIELD */}
-        <View style={styles.womenShieldSection}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={styles.sectionTitle}>Women's Safety Shield</Text>
-              <Text style={styles.sectionSubTitle}>Discreet Defense & Night Transit Tools</Text>
-            </View>
-            <View style={styles.stealthBadge}>
-              <Text style={styles.stealthBadgeText}>STEALTH DEFENSE</Text>
-            </View>
-          </View>
-
-          {/* Primary "Being Followed" Banner */}
-          <TouchableOpacity
-            style={styles.beingFollowedCard}
-            onPress={() => setBeingFollowedVisible(true)}
-            activeOpacity={0.88}
-          >
-            <View style={styles.followedIconCircle}>
-              <Text style={styles.followedIconText}>🚨</Text>
-            </View>
-            <View style={styles.followedTextCol}>
-              <Text style={styles.followedTitle}>I Feel Unsafe / Being Followed</Text>
-              <Text style={styles.followedDesc}>
-                1-tap stealth GPS alert to parents, silent trigger & speed dial
-              </Text>
-            </View>
-            <Text style={styles.followedArrow}>➔</Text>
-          </TouchableOpacity>
-
-          {/* 3 Quick Actions */}
-          <View style={styles.shieldActionsRow}>
-            <TouchableOpacity
-              style={[styles.shieldActionCard, { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE' }]}
-              onPress={() => setBeingFollowedVisible(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.shieldActionIcon}>🤫</Text>
-              <Text style={[styles.shieldActionTitle, { color: '#3730A3' }]}>Silent SOS</Text>
-              <Text style={styles.shieldActionSub}>For danger / hiding</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.shieldActionCard, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}
-              onPress={() => setJourneySentinelVisible(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.shieldActionIcon}>⏱️</Text>
-              <Text style={[styles.shieldActionTitle, { color: '#166534' }]}>Safe Arrival</Text>
-              <Text style={styles.shieldActionSub}>Night transit timer</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.shieldActionCard, { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' }]}
-              onPress={() => setFakeCallVisible(true)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.shieldActionIcon}>📞</Text>
-              <Text style={[styles.shieldActionTitle, { color: '#9A3412' }]}>Fake Call</Text>
-              <Text style={styles.shieldActionSub}>Discreet cab exit</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* 5. OFFLINE EMERGENCY FIRST-AID & DISASTER SURVIVAL */}
-        <View style={styles.firstAidSection}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={styles.sectionTitle}>Emergency First-Aid & Survival</Text>
-              <Text style={styles.sectionSubTitle}>100% Offline Medical & Disaster Protocols</Text>
-            </View>
-            <View style={styles.offlineReadyBadge}>
-              <Text style={styles.offlineReadyBadgeText}>💾 OFFLINE READY</Text>
+        {/* ========================================================
+            7. TACTICAL SAFETY INTEL & DISASTER NEWS BRIEFING
+        ======================================================== */}
+        <View style={styles.intelSection}>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.groupHeaderTitle}>LIVE SAFETY & WEATHER INTEL</Text>
+            <View style={styles.liveIntelBadge}>
+              <Animated.View
+                style={[
+                  styles.liveIntelDot,
+                  {
+                    opacity: radarDotAnim,
+                    transform: [
+                      {
+                        scale: radarDotAnim.interpolate({
+                          inputRange: [0.25, 1],
+                          outputRange: [0.85, 1.3],
+                        }),
+                      },
+                    ],
+                  },
+                ]}
+              />
+              <Text style={styles.liveIntelText}>LIVE RADAR</Text>
             </View>
           </View>
 
-          {/* Primary First-Aid Hub Banner */}
-          <TouchableOpacity
-            style={styles.firstAidHeroCard}
-            onPress={() => {
-              AlertService.triggerHaptic();
-              setInitialPlaybookId(undefined);
-              setFirstAidModalVisible(true);
-            }}
-            activeOpacity={0.88}
-          >
-            <View style={styles.firstAidIconCircle}>
-              <Text style={styles.firstAidIconText}>🩺</Text>
-            </View>
-            <View style={styles.firstAidTextCol}>
-              <Text style={styles.firstAidHeroTitle}>Offline First-Aid & Survival Playbooks</Text>
-              <Text style={styles.firstAidHeroDesc}>
-                CPR metronome (110 BPM), tourniquets, snakebites, burns & flood survival
-              </Text>
-            </View>
-            <Text style={styles.firstAidArrow}>➔</Text>
-          </TouchableOpacity>
-
-          {/* Quick Category Chips */}
-          <View style={styles.firstAidChipsRow}>
-            <TouchableOpacity
-              style={styles.firstAidChip}
-              onPress={() => {
-                AlertService.triggerHaptic();
-                setInitialPlaybookId('adult-cpr');
-                setFirstAidModalVisible(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.firstAidChipIcon}>🫀</Text>
-              <Text style={styles.firstAidChipText}>CPR Rhythm</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.firstAidChip}
-              onPress={() => {
-                AlertService.triggerHaptic();
-                setInitialPlaybookId('severe-bleeding');
-                setFirstAidModalVisible(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.firstAidChipIcon}>🩸</Text>
-              <Text style={styles.firstAidChipText}>Bleeding</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.firstAidChip}
-              onPress={() => {
-                AlertService.triggerHaptic();
-                setInitialPlaybookId('snakebite-protocol');
-                setFirstAidModalVisible(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.firstAidChipIcon}>🐍</Text>
-              <Text style={styles.firstAidChipText}>Snakebite</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.firstAidChip}
-              onPress={() => {
-                AlertService.triggerHaptic();
-                setInitialPlaybookId('flood-survival');
-                setFirstAidModalVisible(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.firstAidChipIcon}>🌊</Text>
-              <Text style={styles.firstAidChipText}>Floods</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* 6. LIVE SAFETY & DISASTER NEWS FEED */}
-        <View style={styles.newsSection}>
-          <View style={styles.sectionHeaderRow}>
-            <View>
-              <Text style={styles.sectionTitle}>Safety & Disaster News</Text>
-              <Text style={styles.sectionSubTitle}>Official bulletins, weather & police advisories</Text>
-            </View>
-            <View style={styles.liveTag}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveTagText}>LIVE</Text>
-            </View>
-          </View>
-
-          {/* News Filter Chips */}
+          {/* Filter Chips Horizontal Bar */}
           <ScrollView
             horizontal
-            nestedScrollEnabled={true}
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.filterChipsRow}
+            contentContainerStyle={styles.intelFiltersRow}
           >
             {[
-              { id: 'all', label: 'All Updates' },
+              { id: 'all', label: 'All Intel' },
               { id: 'disaster', label: '🏛️ Disaster' },
               { id: 'women_safety', label: '🛡️ Women Defense' },
               { id: 'weather', label: '🌧️ Weather' },
@@ -712,11 +964,16 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
               return (
                 <TouchableOpacity
                   key={chip.id}
-                  style={[styles.filterChip, active && styles.filterChipActive]}
+                  style={[styles.intelFilterChip, active && styles.intelFilterChipActive]}
                   onPress={() => setNewsFilter(chip.id as any)}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
+                  <Text
+                    style={[
+                      styles.intelFilterText,
+                      active && styles.intelFilterTextActive,
+                    ]}
+                  >
                     {chip.label}
                   </Text>
                 </TouchableOpacity>
@@ -724,83 +981,57 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             })}
           </ScrollView>
 
-          {/* News Cards */}
-          <View style={styles.newsList}>
+          {/* Intel Horizontal Swipeable Carousel */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.intelCardsCarousel}
+          >
             {filteredNews.map((item) => (
-              <View key={item.id} style={styles.newsCard}>
-                <View style={styles.newsTopRow}>
+              <View key={item.id} style={styles.intelCard}>
+                <View style={styles.intelCardTop}>
                   <View
                     style={[
-                      styles.newsCategoryBadge,
-                      { backgroundColor: `${item.categoryColor}15` },
+                      styles.intelCategoryPill,
+                      { backgroundColor: `${item.categoryColor}25` },
                     ]}
                   >
-                    <Text style={[styles.newsCategoryText, { color: item.categoryColor }]}>
+                    <Text style={[styles.intelCategoryText, { color: item.categoryColor }]}>
                       {item.categoryIcon} {item.categoryLabel}
                     </Text>
                   </View>
-                  <Text style={styles.newsTimeAgo}>{item.timeAgo}</Text>
+                  <Text style={styles.intelTimeAgo}>{item.timeAgo}</Text>
                 </View>
 
-                <Text style={styles.newsTitle}>{item.title}</Text>
-                <Text style={styles.newsSummary}>{item.summary}</Text>
+                <Text style={styles.intelTitle} numberOfLines={2}>
+                  {item.title}
+                </Text>
+                <Text style={styles.intelSnippet} numberOfLines={3}>
+                  {item.summary}
+                </Text>
 
-                <View style={styles.newsFooterRow}>
-                  <Text style={styles.newsSource}>Official: {item.source}</Text>
+                <View style={styles.intelFooter}>
+                  <Text style={styles.intelSource} numberOfLines={1}>
+                    Source: {item.source}
+                  </Text>
                   {item.isUrgent && (
-                    <View style={styles.urgentPill}>
-                      <Text style={styles.urgentText}>PRIORITY</Text>
+                    <View style={styles.priorityPill}>
+                      <Text style={styles.priorityText}>PRIORITY</Text>
                     </View>
                   )}
                 </View>
               </View>
             ))}
-          </View>
+          </ScrollView>
         </View>
 
-        {/* 6. CORE SAFETY SERVICES NAVIGATION */}
-        <View style={styles.servicesSection}>
-          <Text style={styles.sectionTitle}>Safety Services</Text>
-          <View style={styles.servicesRow}>
-            <TouchableOpacity
-              style={styles.serviceCard}
-              activeOpacity={0.75}
-              onPress={() => navigation.navigate('SafeZonesTab')}
-            >
-              <View style={[styles.serviceIconBg, { backgroundColor: '#E0F2FE' }]}>
-                <Text style={styles.serviceIcon}>🏥</Text>
-              </View>
-              <Text style={styles.serviceTitle}>Safe Zones</Text>
-              <Text style={styles.serviceSub}>Hospitals, Shelters</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.serviceCard}
-              activeOpacity={0.75}
-              onPress={() => navigation.navigate('ReportsTab')}
-            >
-              <View style={[styles.serviceIconBg, { backgroundColor: '#FEF3C7' }]}>
-                <Text style={styles.serviceIcon}>⚠️</Text>
-              </View>
-              <Text style={styles.serviceTitle}>Live Hazards</Text>
-              <Text style={styles.serviceSub}>Roadblocks & Alerts</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.serviceCard}
-              activeOpacity={0.75}
-              onPress={() => navigation.navigate('ChatbotTab')}
-            >
-              <View style={[styles.serviceIconBg, { backgroundColor: '#FCE7F3' }]}>
-                <Text style={styles.serviceIcon}>💬</Text>
-              </View>
-              <Text style={styles.serviceTitle}>MIA Assistant</Text>
-              <Text style={styles.serviceSub}>Emergency AI Bot</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <View style={{ height: 40 }} />
+        </Animated.View>
       </ScrollView>
 
+      {/* ========================================================
+          MODALS & SYSTEM OVERLAYS (100% PRESERVED & WORKING)
+      ======================================================== */}
       {/* Standard SOS Modal */}
       <SosModal
         visible={sosModalVisible}
@@ -866,7 +1097,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
             </View>
 
             <Text style={styles.parentModalDesc}>
-              When you press the big red SOS button or stealth triggers, your live GPS location and distress alert will be sent directly to this mobile number.
+              When you activate the tactical SOS or hardware power triggers, your live GPS coordinates and automated distress alert will dispatch directly to this mobile phone number.
             </Text>
 
             <Text style={styles.inputLabel}>Guardian Relation / Name</Text>
@@ -875,7 +1106,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
               value={parentName}
               onChangeText={setParentName}
               placeholder="e.g. Mom / Dad / Parents / Spouse"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor="#64748B"
             />
 
             <Text style={styles.inputLabel}>Mobile Phone Number</Text>
@@ -884,7 +1115,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
               value={parentPhone}
               onChangeText={setParentPhone}
               placeholder="e.g. +91 98230 12345"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor="#64748B"
               keyboardType="phone-pad"
             />
 
@@ -893,7 +1124,7 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
               onPress={handleSaveParentContact}
               activeOpacity={0.85}
             >
-              <Text style={styles.saveParentBtnText}>🛡️ Save & Link to SOS Button</Text>
+              <Text style={styles.saveParentBtnText}>🛡️ Save & Link to SOS Reactor</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -931,11 +1162,29 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         }}
         initialPlaybookId={initialPlaybookId}
       />
+
+      {/* Examiner Presentation Demo Mode: Top Drop-Down Notification Banner */}
+      <GuardianResponseBanner
+        payload={simulatedPayload}
+        onPressInspect={() => setGuardianSimVisible(true)}
+        onDismiss={() => setSimulatedPayload(null)}
+      />
+
+      {/* Examiner Presentation Demo Mode: Simulated Receiver Console */}
+      <GuardianSimulationModal
+        visible={guardianSimVisible}
+        onClose={() => setGuardianSimVisible(false)}
+        payload={simulatedPayload}
+        onAcknowledged={(ack) => {
+          setGuardianAck(ack);
+          setSimulatedPayload(null);
+        }}
+      />
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (THEME: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: THEME.background,
@@ -945,849 +1194,794 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 70,
-    flexGrow: 1,
+    paddingTop: 8,
+    paddingBottom: 40,
   },
-  // Top Header
-  header: {
+
+  // 1. Command Header
+  commandHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
+    paddingTop: 4,
   },
-  headerUserRow: {
+  commandBrandRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    gap: 10,
   },
-  headerLogoBadge: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    shadowColor: '#E63946',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+  logoBadgeContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: THEME.cardBg,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
   },
-  headerTextCol: {
+  logoBadge: {
+    width: 32,
+    height: 32,
+  },
+  brandTitleCol: {
     flex: 1,
   },
-  headerGreeting: {
-    fontSize: 13,
-    color: THEME.textSecondary,
-    fontWeight: '500',
-  },
-  headerUserName: {
-    fontSize: 22,
+  brandTag: {
+    fontSize: 9,
     fontWeight: '800',
+    color: THEME.emerald,
+    letterSpacing: 1,
+  },
+  brandTitle: {
+    fontSize: 16,
+    fontWeight: '900',
     color: THEME.textPrimary,
-    letterSpacing: -0.4,
+    marginTop: 1,
   },
-  headerRightRow: {
+  commandRightActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  cloudSyncPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EFF6FF',
-    paddingVertical: 5,
-    paddingHorizontal: 9,
-    borderRadius: 20,
+  themeTogglePill: {
+    backgroundColor: THEME.cardElevated,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: THEME.cardBorder,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  cloudSyncPillIcon: {
-    fontSize: 12,
-    marginRight: 4,
+  themeToggleIcon: {
+    fontSize: 13,
   },
-  cloudSyncPillText: {
+  demoTogglePill: {
+    backgroundColor: THEME.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  demoTogglePillActive: {
+    backgroundColor: THEME.blueBg,
+    borderColor: THEME.blue,
+  },
+  demoToggleText: {
     fontSize: 10,
     fontWeight: '800',
-    color: '#2563EB',
+    color: THEME.textMuted,
     letterSpacing: 0.5,
   },
-  cloudSignInPill: {
+  demoToggleTextActive: {
+    color: THEME.blue,
+  },
+  // Guardian Acknowledgment Banner
+  guardianAckBanner: {
+    borderRadius: 14,
+    borderWidth: 1.5,
+    padding: 12,
+    marginBottom: 14,
+  },
+  guardianAckHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  guardianAckBadgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
-    paddingVertical: 5,
-    paddingHorizontal: 9,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#CBD5E1',
+    gap: 6,
   },
-  cloudSignInPillIcon: {
-    fontSize: 12,
-    marginRight: 4,
+  guardianAckDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
-  cloudSignInPillText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#475569',
-    letterSpacing: 0.5,
-  },
-  shieldPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME.safeGreenBg,
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: THEME.safeGreenBorder,
-  },
-  shieldPulseDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
-    backgroundColor: THEME.safeGreen,
-    marginRight: 6,
-  },
-  shieldPillText: {
+  guardianAckTitle: {
     fontSize: 11,
     fontWeight: '800',
-    color: THEME.safeGreen,
-    letterSpacing: 0.5,
-  },
-
-  // Location Strip
-  locationStrip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME.cardBg,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: THEME.border,
-  },
-  locationPinIcon: {
-    fontSize: 18,
-    marginRight: 8,
-  },
-  locationTextCol: {
-    flex: 1,
-  },
-  locationLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: THEME.textLight,
     letterSpacing: 0.6,
   },
-  locationValue: {
-    fontSize: 13,
+  guardianAckClose: {
+    fontSize: 14,
     fontWeight: '700',
-    color: THEME.textPrimary,
-    marginTop: 1,
+    padding: 2,
   },
-  refreshBtn: {
-    padding: 6,
-    borderRadius: 8,
-    backgroundColor: '#F1F5F9',
+  guardianAckNote: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontStyle: 'italic',
+    marginBottom: 10,
   },
-  refreshBtnText: {
-    fontSize: 13,
-  },
-
-  // 1. Hero SOS Card
-  sosCard: {
-    backgroundColor: THEME.cardBg,
-    borderRadius: 20,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: THEME.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  guardianLinkBar: {
-    width: '100%',
+  guardianAckMetaRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#F0FDF4',
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 16,
   },
-  guardianLinkBarUnset: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
-  },
-  guardianLinkIcon: {
-    fontSize: 18,
-    marginRight: 8,
-  },
-  guardianLinkTextCol: {
+  guardianAckMetaText: {
+    fontSize: 11,
+    fontWeight: '600',
     flex: 1,
   },
-  guardianLinkTag: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: THEME.textSecondary,
-    letterSpacing: 0.5,
-  },
-  guardianLinkName: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.textPrimary,
-    marginTop: 1,
-  },
-  guardianEditPill: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: THEME.border,
-    paddingVertical: 3,
-    paddingHorizontal: 8,
+  guardianAckInspectBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 6,
+    borderWidth: 1,
   },
-  guardianEditText: {
+  guardianAckInspectText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  cloudStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.cardElevated,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    gap: 4,
+  },
+  cloudStatusIcon: {
+    fontSize: 11,
+  },
+  cloudStatusText: {
     fontSize: 10,
     fontWeight: '800',
     color: THEME.blue,
+    letterSpacing: 0.5,
   },
-  sosButtonContainer: {
+  cloudSyncPromptPill: {
+    backgroundColor: THEME.blueBg,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: THEME.blueBorder,
+  },
+  cloudSyncPromptText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.blue,
+    letterSpacing: 0.5,
+  },
+  armedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.emeraldBg,
+    borderWidth: 1,
+    borderColor: THEME.emeraldBorder,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 8,
+    gap: 5,
+  },
+  armedDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: THEME.emerald,
+  },
+  armedText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: THEME.emerald,
+    letterSpacing: 0.8,
+  },
+
+  // 2. Telemetry Card
+  telemetryCard: {
+    flexDirection: 'row',
+    backgroundColor: THEME.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 12,
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  telemetryLocationCol: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  telemetryParentCol: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  telemetryIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    backgroundColor: THEME.cardElevated,
     alignItems: 'center',
     justifyContent: 'center',
-    width: SOS_BUTTON_SIZE + 32,
-    height: SOS_BUTTON_SIZE + 32,
+    marginRight: 8,
+  },
+  telemetryPinIcon: {
+    fontSize: 13,
+  },
+  telemetryParentIcon: {
+    fontSize: 13,
+  },
+  telemetryTextCol: {
+    flex: 1,
+  },
+  telemetryLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: THEME.textMuted,
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  telemetryValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.textPrimary,
+  },
+  telemetryDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: THEME.divider,
+    marginHorizontal: 10,
+  },
+
+  // 3. Hero SOS Reactor
+  heroSosSection: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    paddingVertical: 8,
+  },
+  reactorContainer: {
+    width: SOS_BUTTON_SIZE * 1.5,
+    height: SOS_BUTTON_SIZE * 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
     marginVertical: 4,
   },
-  sosOuterGlow: {
+  reactorShockwaveOuter: {
     position: 'absolute',
-    width: SOS_BUTTON_SIZE + 32,
-    height: SOS_BUTTON_SIZE + 32,
-    borderRadius: (SOS_BUTTON_SIZE + 32) / 2,
+    width: SOS_BUTTON_SIZE * 1.35,
+    height: SOS_BUTTON_SIZE * 1.35,
+    borderRadius: (SOS_BUTTON_SIZE * 1.35) / 2,
+    backgroundColor: THEME.primaryHalo,
+  },
+  reactorShockwaveInner: {
+    position: 'absolute',
+    width: SOS_BUTTON_SIZE * 1.16,
+    height: SOS_BUTTON_SIZE * 1.16,
+    borderRadius: (SOS_BUTTON_SIZE * 1.16) / 2,
     backgroundColor: THEME.primaryGlow,
   },
-  sosButton: {
+  sosReactorButton: {
     width: SOS_BUTTON_SIZE,
     height: SOS_BUTTON_SIZE,
     borderRadius: SOS_BUTTON_SIZE / 2,
     backgroundColor: THEME.primary,
-    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: THEME.primaryDark,
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    justifyContent: 'center',
+    shadowColor: THEME.primary,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.65,
+    shadowRadius: 24,
+    elevation: 18,
     borderWidth: 4,
-    borderColor: '#FFFFFF',
+    borderColor: '#F87171',
   },
-  sosText: {
-    fontSize: 28,
+  sosCoreRing: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sosCoreIcon: {
+    fontSize: 18,
+    color: '#FEF2F2',
+    marginBottom: -2,
+  },
+  sosCoreText: {
+    fontSize: 32,
     fontWeight: '900',
     color: '#FFFFFF',
     letterSpacing: 2,
   },
-  sosSubtext: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: 'rgba(255, 255, 255, 0.9)',
-    letterSpacing: 1,
-    marginTop: 2,
+  sosCoreSub: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: 'rgba(255, 255, 255, 0.85)',
+    letterSpacing: 1.5,
+    marginTop: 1,
   },
-  sosInstruction: {
+  sosTelemetryBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.3)',
+    borderRadius: 20,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    marginTop: 8,
+    gap: 7,
+  },
+  sosLiveRadarDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: THEME.primary,
+  },
+  sosTelemetryTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FCA5A5',
+    letterSpacing: 0.5,
+  },
+  powerHardwareNotice: {
     fontSize: 11,
-    color: THEME.textSecondary,
+    color: THEME.textMuted,
+    marginTop: 8,
     textAlign: 'center',
-    marginTop: 10,
     fontWeight: '500',
   },
 
-  // 2. Hotlines
-  hotlinesSection: {
-    marginBottom: 16,
+  // 4. Hotlines Matrix
+  hotlinesContainer: {
+    marginBottom: 24,
   },
-  hotlinesRow: {
+  groupHeaderTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.textSecondary,
+    letterSpacing: 1.2,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
+  hotlinesMatrix: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
-  hotlinePill: {
+  hotlineMatrixBtn: {
     flex: 1,
+    minWidth: (width - 40) / 2 - 4,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    backgroundColor: THEME.cardBg,
     borderRadius: 12,
     borderWidth: 1,
-    gap: 6,
+    padding: 10,
   },
-  hotlineIcon: {
-    fontSize: 18,
+  hotlineBadgeIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 9,
   },
-  hotlineLabel: {
-    fontSize: 10,
-    fontWeight: '700',
+  hotlineEmoji: {
+    fontSize: 15,
   },
-  hotlineNum: {
+  hotlineInfoCol: {
+    flex: 1,
+  },
+  hotlineName: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     color: THEME.textPrimary,
   },
-
-  // Shared Section Header
-  sectionHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 10,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: THEME.textPrimary,
-    letterSpacing: -0.3,
-  },
-  sectionSubTitle: {
-    fontSize: 11,
-    color: THEME.textSecondary,
+  hotlineCode: {
+    fontSize: 12,
+    fontWeight: '900',
     marginTop: 1,
   },
 
-  // 3. Disaster Risk Section
-  disasterSection: {
-    marginBottom: 18,
+  // 5. Bento Grid
+  bentoSection: {
+    marginBottom: 24,
   },
-  threatBadge: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+  bentoGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
   },
-  threatBadgeLow: {
-    backgroundColor: '#DCFCE7',
+  bentoCard: {
+    width: (width - 42) / 2,
+    backgroundColor: THEME.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 13,
   },
-  threatBadgeMed: {
-    backgroundColor: '#FEF3C7',
+  bentoHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
   },
-  threatBadgeHigh: {
-    backgroundColor: '#FEE2E2',
+  bentoIconBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  threatBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
+  bentoIcon: {
+    fontSize: 17,
+  },
+  bentoPillTag: {
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+  },
+  bentoPillTagText: {
+    fontSize: 8,
+    fontWeight: '900',
     letterSpacing: 0.5,
   },
-  threatTextLow: {
-    color: '#15803D',
-  },
-  threatTextMed: {
-    color: '#B45309',
-  },
-  threatTextHigh: {
-    color: '#B91C1C',
-  },
-  disasterCard: {
-    backgroundColor: THEME.cardBg,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: THEME.border,
-  },
-  riskBarTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#E2E8F0',
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  riskBarFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  disasterHeadline: {
+  bentoTitle: {
     fontSize: 14,
     fontWeight: '800',
     color: THEME.textPrimary,
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  disasterSummary: {
+  bentoSub: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    lineHeight: 15,
+    minHeight: 30,
+  },
+  bentoArrow: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#EF4444',
+    marginTop: 8,
+  },
+
+  // 6. Situational Radar & Threat Metric
+  radarSection: {
+    marginBottom: 24,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  threatLevelBadge: {
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  threatLevelBadgeLow: {
+    backgroundColor: THEME.emeraldBg,
+    borderColor: THEME.emeraldBorder,
+  },
+  threatLevelBadgeMed: {
+    backgroundColor: THEME.amberBg,
+    borderColor: THEME.amberBorder,
+  },
+  threatLevelBadgeHigh: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderColor: 'rgba(239, 68, 68, 0.4)',
+  },
+  threatLevelBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  threatTextLow: { color: THEME.emerald },
+  threatTextMed: { color: THEME.amber },
+  threatTextHigh: { color: THEME.primary },
+  radarCard: {
+    backgroundColor: THEME.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 14,
+  },
+  riskTrack: {
+    height: 5,
+    backgroundColor: THEME.divider,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  riskProgress: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  radarHeadline: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+    marginBottom: 3,
+  },
+  radarSummary: {
     fontSize: 12,
     color: THEME.textSecondary,
     lineHeight: 17,
     marginBottom: 12,
   },
-  factorsGrid: {
+  factorsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
+    gap: 6,
+    marginBottom: 14,
   },
-  factorCard: {
-    width: (width - 32 - 28 - 8) / 2,
-    backgroundColor: '#F8FAFC',
-    borderRadius: 10,
-    padding: 10,
+  factorChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.cardElevated,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: THEME.cardBorder,
+    gap: 4,
   },
-  factorTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  factorIcon: {
-    fontSize: 16,
-  },
-  factorPercent: {
+  factorChipIcon: {
     fontSize: 11,
-    fontWeight: '800',
-    color: THEME.textPrimary,
   },
-  factorName: {
-    fontSize: 11,
+  factorChipName: {
+    fontSize: 10,
     fontWeight: '700',
+    color: THEME.textSecondary,
+  },
+  factorChipPercent: {
+    fontSize: 10,
+    fontWeight: '900',
     color: THEME.textPrimary,
   },
-  factorStatus: {
-    fontSize: 9,
-    color: THEME.textSecondary,
-    marginTop: 1,
-  },
-  shelterShortcutBtn: {
+  shelterEvacBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F1F5F9',
+    backgroundColor: THEME.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.emeraldBorder,
     borderRadius: 10,
     paddingVertical: 9,
     paddingHorizontal: 12,
   },
-  shelterShortcutIcon: {
+  shelterEvacIcon: {
     fontSize: 14,
     marginRight: 8,
   },
-  shelterShortcutText: {
+  shelterEvacText: {
     flex: 1,
     fontSize: 11,
     fontWeight: '700',
-    color: THEME.blue,
+    color: THEME.emerald,
   },
-  shelterShortcutArrow: {
+  shelterEvacArrow: {
     fontSize: 12,
-    fontWeight: '800',
-    color: THEME.blue,
+    fontWeight: '900',
+    color: THEME.emerald,
   },
 
-  // 4. Women's Safety Shield
-  womenShieldSection: {
-    marginBottom: 18,
+  // 7. Tactical Intel Briefing
+  intelSection: {
+    marginBottom: 10,
   },
-  stealthBadge: {
-    backgroundColor: '#FFE4E6',
+  liveIntelBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 6,
-  },
-  stealthBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: THEME.rose,
-    letterSpacing: 0.5,
-  },
-  beingFollowedCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#881337',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 10,
-    shadowColor: '#881337',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  followedIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.16)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  followedIconText: {
-    fontSize: 18,
-  },
-  followedTextCol: {
-    flex: 1,
-  },
-  followedTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  followedDesc: {
-    fontSize: 10,
-    color: '#FECDD3',
-    marginTop: 1,
-    fontWeight: '500',
-  },
-  followedArrow: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    fontWeight: '800',
-    marginLeft: 6,
-  },
-  shieldActionsRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  shieldActionCard: {
-    flex: 1,
-    borderRadius: 12,
-    padding: 10,
-    borderWidth: 1,
-    alignItems: 'center',
-  },
-  shieldActionIcon: {
-    fontSize: 18,
-    marginBottom: 2,
-  },
-  shieldActionTitle: {
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  shieldActionSub: {
-    fontSize: 9,
-    color: THEME.textSecondary,
-    marginTop: 1,
-    textAlign: 'center',
-  },
-
-  // 5. Offline First-Aid & Survival Section
-  firstAidSection: {
-    marginBottom: 18,
-  },
-  offlineReadyBadge: {
-    backgroundColor: '#ECFDF5',
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    borderWidth: 0.5,
-    borderColor: '#A7F3D0',
-  },
-  offlineReadyBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#059669',
-    letterSpacing: 0.5,
-  },
-  firstAidHeroCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0F766E',
-    borderRadius: 14,
-    padding: 12,
-    marginBottom: 10,
-    shadowColor: '#0F766E',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  firstAidIconCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.18)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  firstAidIconText: {
-    fontSize: 20,
-  },
-  firstAidTextCol: {
-    flex: 1,
-  },
-  firstAidHeroTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  firstAidHeroDesc: {
-    fontSize: 10,
-    color: '#CCFBF1',
-    marginTop: 1,
-    fontWeight: '500',
-  },
-  firstAidArrow: {
-    fontSize: 16,
-    color: '#FFFFFF',
-    fontWeight: '800',
-    marginLeft: 6,
-  },
-  firstAidChipsRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  firstAidChip: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F0FDFA',
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
-    borderWidth: 1,
-    borderColor: '#99F6E4',
     gap: 4,
   },
-  firstAidChipIcon: {
-    fontSize: 12,
+  liveIntelDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: THEME.blue,
   },
-  firstAidChipText: {
-    fontSize: 10,
+  liveIntelText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: THEME.blue,
+    letterSpacing: 0.5,
+  },
+  intelFiltersRow: {
+    gap: 6,
+    marginBottom: 12,
+  },
+  intelFilterChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: THEME.cardBg,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+  intelFilterChipActive: {
+    backgroundColor: THEME.cardElevated,
+    borderColor: THEME.blue,
+  },
+  intelFilterText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.textSecondary,
+  },
+  intelFilterTextActive: {
+    color: THEME.textPrimary,
     fontWeight: '800',
-    color: '#0F766E',
   },
-
-  // 6. Safety News
-  newsSection: {
-    marginBottom: 18,
+  intelCardsCarousel: {
+    gap: 12,
+    paddingRight: 16,
   },
-  liveTag: {
+  intelCard: {
+    width: width * 0.72,
+    backgroundColor: THEME.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 13,
+  },
+  intelCardTop: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#FEE2E2',
+    marginBottom: 8,
+  },
+  intelCategoryPill: {
     paddingVertical: 3,
     paddingHorizontal: 7,
     borderRadius: 6,
   },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#DC2626',
-    marginRight: 4,
-  },
-  liveTagText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#DC2626',
-    letterSpacing: 0.5,
-  },
-  filterChipsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-  filterChip: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 5,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: THEME.border,
-  },
-  filterChipActive: {
-    backgroundColor: '#0F172A',
-    borderColor: '#0F172A',
-  },
-  filterChipText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: THEME.textSecondary,
-  },
-  filterChipTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  newsList: {
-    gap: 8,
-  },
-  newsCard: {
-    backgroundColor: THEME.cardBg,
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: THEME.border,
-  },
-  newsTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  newsCategoryBadge: {
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-  },
-  newsCategoryText: {
+  intelCategoryText: {
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 0.4,
   },
-  newsTimeAgo: {
+  intelTimeAgo: {
     fontSize: 10,
-    color: THEME.textLight,
+    color: THEME.textMuted,
+    fontWeight: '600',
   },
-  newsTitle: {
+  intelTitle: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: THEME.textPrimary,
-    marginBottom: 3,
+    lineHeight: 18,
+    marginBottom: 4,
   },
-  newsSummary: {
+  intelSnippet: {
     fontSize: 11,
     color: THEME.textSecondary,
     lineHeight: 16,
+    marginBottom: 10,
   },
-  newsFooterRow: {
+  intelFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 8,
-    paddingTop: 6,
     borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
+    borderTopColor: THEME.divider,
+    paddingTop: 8,
   },
-  newsSource: {
+  intelSource: {
     fontSize: 10,
-    color: THEME.textLight,
-    fontWeight: '500',
+    color: THEME.textMuted,
+    fontWeight: '600',
+    flex: 1,
   },
-  urgentPill: {
-    backgroundColor: '#FEE2E2',
-    paddingVertical: 1,
+  priorityPill: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    paddingVertical: 2,
     paddingHorizontal: 6,
     borderRadius: 4,
   },
-  urgentText: {
+  priorityText: {
     fontSize: 8,
-    fontWeight: '800',
-    color: '#DC2626',
+    fontWeight: '900',
+    color: THEME.primary,
     letterSpacing: 0.5,
   },
 
-  // 6. Services Bottom Section
-  servicesSection: {
-    marginBottom: 10,
-  },
-  servicesRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-  },
-  serviceCard: {
-    flex: 1,
-    backgroundColor: THEME.cardBg,
-    borderRadius: 14,
-    padding: 12,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: THEME.border,
-  },
-  serviceIconBg: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  serviceIcon: {
-    fontSize: 18,
-  },
-  serviceTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.textPrimary,
-  },
-  serviceSub: {
-    fontSize: 9,
-    color: THEME.textSecondary,
-    marginTop: 1,
-    textAlign: 'center',
-  },
-
-  // Modal Styles
+  // Modal Overlay
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
   parentModalCard: {
     width: '100%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
+    backgroundColor: THEME.cardBg,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 8,
   },
   parentModalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   parentModalTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
-    color: '#0F172A',
+    color: THEME.textPrimary,
   },
   parentModalClose: {
     fontSize: 18,
-    color: '#94A3B8',
-    fontWeight: '700',
+    color: THEME.textSecondary,
     padding: 4,
   },
   parentModalDesc: {
-    fontSize: 13,
-    color: '#64748B',
-    lineHeight: 18,
+    fontSize: 12,
+    color: THEME.textSecondary,
+    lineHeight: 17,
     marginBottom: 16,
   },
   inputLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#334155',
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.textSecondary,
+    letterSpacing: 0.5,
     marginBottom: 6,
-    marginTop: 6,
+    textTransform: 'uppercase',
   },
   textInput: {
-    backgroundColor: '#F8FAFC',
+    backgroundColor: THEME.cardElevated,
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: THEME.cardBorder,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 14,
-    color: '#0F172A',
-    marginBottom: 10,
+    fontSize: 13,
+    color: THEME.textPrimary,
+    marginBottom: 14,
   },
   saveParentBtn: {
-    backgroundColor: '#16A34A',
+    backgroundColor: THEME.primary,
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 12,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 6,
   },
   saveParentBtnText: {
+    fontSize: 13,
+    fontWeight: '900',
     color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '800',
+    letterSpacing: 0.5,
   },
 });

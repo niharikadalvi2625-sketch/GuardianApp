@@ -12,6 +12,7 @@ import {
 import { LocationCoords, EmergencyContact, UserProfile } from '../types';
 import { SosService } from '../services/sosService';
 import { LocationService } from '../services/locationService';
+import { DemoModeService } from '../services/demoModeService';
 
 interface SosModalProps {
   visible: boolean;
@@ -115,6 +116,9 @@ export default function SosModal({
     if (phonesToUse.length > 0) {
       await SosService.sendSosSms(phonesToUse, message);
     }
+
+    // Trigger simulated guardian delivery for presentation & viva evaluations
+    DemoModeService.simulateIncomingSosAlert(coords, profile, alertContacts);
   };
 
   const handleCancel = () => {

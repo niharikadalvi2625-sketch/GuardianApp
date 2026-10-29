@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -10,33 +10,33 @@ import {
   Modal,
   ActivityIndicator,
   Switch,
+  Dimensions,
+  Animated,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SosService } from '../services/sosService';
 import { AuthService } from '../services/authService';
 import { CloudSyncService } from '../services/cloudSyncService';
 import { HardwareTriggerService } from '../services/hardwareTriggerService';
+import { AlertService } from '../services/alertService';
+import { DemoModeService, SimulatedSosPayload } from '../services/demoModeService';
 import AuthModal from '../components/AuthModal';
 import FirstAidModal from '../components/FirstAidModal';
+import GuardianSimulationModal from '../components/GuardianSimulationModal';
 import { UserProfile, EmergencyContact, SosAlertSession, AuthUser, CloudSyncState } from '../types';
+import { useTheme } from '../context/ThemeContext';
+import { ThemeColors } from '../theme/colors';
 
-const THEME = {
-  primary: '#E63946',
-  primaryDark: '#B71C1C',
-  secondary: '#1D3557',
-  background: '#F8F9FA',
-  cardBg: '#FFFFFF',
-  textPrimary: '#1E293B',
-  textSecondary: '#64748B',
-  textLight: '#94A3B8',
-  safeGreen: '#2A9D8F',
-  safeGreenBg: '#E8F5E9',
-  border: '#E2E8F0',
-};
+const { width } = Dimensions.get('window');
 
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 export default function ProfileScreen() {
+  const { theme, isDark, themePreference, setThemePreference } = useTheme();
+  const THEME = theme;
+  const styles = useMemo(() => getStyles(theme), [theme]);
+
   const [profile, setProfile] = useState<UserProfile>({
     name: '',
     phone: '',
@@ -67,17 +67,70 @@ export default function ProfileScreen() {
   const [lockNotificationEnabled, setLockNotificationEnabled] = useState<boolean>(true);
   const [firstAidModalVisible, setFirstAidModalVisible] = useState<boolean>(false);
 
+  // Examiner Demo Mode State
+  const [demoModeEnabled, setDemoModeEnabled] = useState<boolean>(true);
+  const [demoSimModalVisible, setDemoSimModalVisible] = useState<boolean>(false);
+  const [activeSimPayload, setActiveSimPayload] = useState<SimulatedSosPayload | null>(null);
+
+  // Screen Animations
+  const screenFadeAnim = useRef(new Animated.Value(0)).current;
+  const screenSlideAnim = useRef(new Animated.Value(14)).current;
+  const cloudPulseAnim = useRef(new Animated.Value(0.4)).current;
+
   useEffect(() => {
     loadData();
+
+    // Smooth screen entrance
+    Animated.parallel([
+      Animated.timing(screenFadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.spring(screenSlideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Cloud sync breathing beacon loop
+    const cloudLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(cloudPulseAnim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(cloudPulseAnim, {
+          toValue: 0.35,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    cloudLoop.start();
+
     const unsubAuth = AuthService.onAuthStateChanged((user) => {
       setCurrentUser(user);
     });
     const unsubSync = CloudSyncService.onSyncStateChanged((state) => {
       setSyncState(state);
     });
+
+    DemoModeService.init().then((enabled) => {
+      setDemoModeEnabled(enabled);
+    });
+    const unsubDemo = DemoModeService.onStateChanged((enabled) => {
+      setDemoModeEnabled(enabled);
+    });
+
     return () => {
+      cloudLoop.stop();
       unsubAuth();
       unsubSync();
+      unsubDemo();
     };
   }, []);
 
@@ -96,27 +149,31 @@ export default function ProfileScreen() {
   };
 
   const handleTogglePowerTrigger = async (value: boolean) => {
+    AlertService.triggerHaptic();
     setPowerTriggerEnabled(value);
     await HardwareTriggerService.setPowerTriggerEnabled(value);
   };
 
   const handleToggleLockNotification = async (value: boolean) => {
+    AlertService.triggerHaptic();
     setLockNotificationEnabled(value);
     await HardwareTriggerService.setLockScreenNotificationEnabled(value);
   };
 
   const handleSaveProfile = async () => {
+    AlertService.triggerHaptic();
     await SosService.saveProfile(profile);
     setIsEditingProfile(false);
-    Alert.alert('Saved', 'Medical ID & Emergency Profile updated successfully.');
+    Alert.alert('✅ Saved', 'Emergency Medical ID & Guardian Profile updated successfully.');
   };
 
   const handleAddContact = async () => {
     if (!newContactName.trim() || !newContactPhone.trim()) {
-      Alert.alert('Incomplete', 'Please enter both contact name and phone number.');
+      Alert.alert('Incomplete Details', 'Please enter both contact name and phone number.');
       return;
     }
 
+    AlertService.triggerHaptic();
     const newContact: EmergencyContact = {
       id: `c-${Date.now()}`,
       name: newContactName.trim(),
@@ -140,6 +197,7 @@ export default function ProfileScreen() {
   };
 
   const handleDeleteContact = (id: string) => {
+    AlertService.triggerHaptic();
     Alert.alert('Delete Guardian', 'Are you sure you want to remove this emergency contact?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -155,6 +213,7 @@ export default function ProfileScreen() {
   };
 
   const handleTogglePrimary = async (id: string) => {
+    AlertService.triggerHaptic();
     const updated = contacts.map((c) => ({
       ...c,
       isPrimary: c.id === id,
@@ -164,6 +223,7 @@ export default function ProfileScreen() {
   };
 
   const handleManualSync = async () => {
+    AlertService.triggerHaptic();
     setSyncing(true);
     try {
       const res = await CloudSyncService.syncToCloud();
@@ -174,6 +234,7 @@ export default function ProfileScreen() {
   };
 
   const handleSignOut = () => {
+    AlertService.triggerHaptic();
     Alert.alert('Sign Out', 'Are you sure you want to disconnect? Your offline emergency data will stay safe on this device.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -187,74 +248,125 @@ export default function ProfileScreen() {
     ]);
   };
 
+  const handleToggleDemoMode = async (val: boolean) => {
+    AlertService.triggerHaptic();
+    await DemoModeService.setDemoMode(val);
+    setDemoModeEnabled(val);
+    Alert.alert(
+      val ? '🎓 Examiner Demo Mode Enabled' : '⚡ Live Mode Enabled',
+      val
+        ? 'Examiner Demo Mode is active. When you trigger SOS, the app will simulate a 2.5s cellular dispatch and prompt an interactive Guardian Device Console, allowing you to showcase the complete two-way response lifecycle to your professor or examiner.'
+        : 'Live mode active. Real native SMS and emergency phone dialing will be used.'
+    );
+  };
+
+  const handleTestDemoTrigger = () => {
+    AlertService.triggerHaptic();
+    DemoModeService.simulateIncomingSosAlert(null, profile, contacts);
+    setTimeout(() => {
+      const p = DemoModeService.getActivePayload();
+      setActiveSimPayload(p);
+      setDemoSimModalVisible(true);
+    }, 400);
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Profile & Guardians</Text>
-          <Text style={styles.headerSubtitle}>
-            Emergency Medical ID & Trusted Dispatch Contacts
-          </Text>
+      <StatusBar barStyle={theme.statusBarStyle} backgroundColor={theme.background} />
+      {/* Top Header */}
+      <View style={styles.topHeader}>
+        <View style={styles.topHeaderTitleCol}>
+          <Text style={styles.topHeaderTag}>IDENTITY & SECURITY HUB</Text>
+          <Text style={styles.topHeaderTitle}>Executive Guardian ID</Text>
         </View>
+        <View style={styles.secureStorageBadge}>
+          <Text style={styles.secureStorageText}>🔒 ENCRYPTED</Text>
+        </View>
+      </View>
 
-        {/* --- GOOGLE ACCOUNT & CLOUD SYNC CARD --- */}
+      <ScrollView
+        style={styles.mainScrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <Animated.View style={{ flex: 1, opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }}>
+        {/* ========================================================
+            1. HERO IDENTITY & CLOUD SYNCHRONIZATION CARD
+        ======================================================== */}
         {currentUser && currentUser.provider !== 'guest' ? (
           <View style={styles.accountCard}>
-            <View style={styles.accountTopRow}>
+            <View style={styles.accountHeaderRow}>
               <View style={styles.avatarCircle}>
                 <Text style={styles.avatarText}>
                   {currentUser.name ? currentUser.name.charAt(0).toUpperCase() : 'G'}
                 </Text>
               </View>
-              <View style={styles.accountInfoCol}>
+
+              <View style={styles.accountDetailsCol}>
                 <View style={styles.accountNameRow}>
-                  <Text style={styles.accountUserName} numberOfLines={1}>
+                  <Text style={styles.accountName} numberOfLines={1}>
                     {currentUser.name}
                   </Text>
-                  <View style={styles.providerBadge}>
-                    <Text style={styles.providerBadgeText}>
-                      {currentUser.provider === 'google' ? 'GOOGLE SYNCED' : currentUser.provider.toUpperCase()}
-                    </Text>
+                  <View style={styles.googleBadge}>
+                    <Text style={styles.googleBadgeText}>GOOGLE</Text>
                   </View>
                 </View>
-                <Text style={styles.accountUserEmail} numberOfLines={1}>
+                <Text style={styles.accountEmail} numberOfLines={1}>
                   {currentUser.email || currentUser.phone || 'Connected Account'}
                 </Text>
               </View>
             </View>
 
-            {/* Cloud Sync Status Info */}
-            <View style={styles.cloudSyncBox}>
-              <View style={styles.syncStatusRow}>
-                <Text style={styles.syncStatusDot}>🟢</Text>
-                <Text style={styles.syncStatusHeadline}>
-                  Google Cloud Live Sync Active
-                </Text>
+            {/* Cloud Sync Telemetry Strip */}
+            <View style={styles.cloudTelemetryBox}>
+              <View style={styles.telemetryStatusRow}>
+                <Animated.View
+                  style={[
+                    styles.statusLiveDot,
+                    {
+                      opacity: cloudPulseAnim,
+                      transform: [
+                        {
+                          scale: cloudPulseAnim.interpolate({
+                            inputRange: [0.35, 1],
+                            outputRange: [0.85, 1.3],
+                          }),
+                        },
+                      ],
+                    },
+                  ]}
+                />
+                <Text style={styles.telemetryHeadline}>Google Cloud Live Backup Active</Text>
               </View>
 
-              <Text style={styles.syncDetailText}>
-                📍 Last Location:{' '}
-                <Text style={styles.syncDetailBold}>
-                  {syncState?.lastSyncedLocation?.city ||
-                    syncState?.lastSyncedLocation?.subLocality ||
-                    'Auto-anchored to GPS'}
-                </Text>
-              </Text>
-              <Text style={styles.syncDetailText}>
-                🛡️ Backed Up Guardians:{' '}
-                <Text style={styles.syncDetailBold}>{contacts.length} emergency contacts</Text>
-              </Text>
-              <Text style={styles.syncDetailText}>
-                🩺 Medical Profile:{' '}
-                <Text style={styles.syncDetailBold}>Synced ({profile.bloodType || 'ID saved'})</Text>
-              </Text>
+              <View style={styles.telemetryMetricsRow}>
+                <View style={styles.telemetryMetricItem}>
+                  <Text style={styles.telemetryMetricLabel}>LAST ANCHOR</Text>
+                  <Text style={styles.telemetryMetricValue} numberOfLines={1}>
+                    {syncState?.lastSyncedLocation?.city ||
+                      syncState?.lastSyncedLocation?.subLocality ||
+                      'GPS Live'}
+                  </Text>
+                </View>
+
+                <View style={styles.telemetryMetricItem}>
+                  <Text style={styles.telemetryMetricLabel}>GUARDIANS</Text>
+                  <Text style={styles.telemetryMetricValue}>{contacts.length} Linked</Text>
+                </View>
+
+                <View style={styles.telemetryMetricItem}>
+                  <Text style={styles.telemetryMetricLabel}>BLOOD GROUP</Text>
+                  <Text style={[styles.telemetryMetricValue, { color: THEME.primary }]}>
+                    {profile.bloodType || 'O+'}
+                  </Text>
+                </View>
+              </View>
             </View>
 
-            {/* Action Buttons: Sync Now & Sign Out */}
+            {/* Sync Now & Sign Out Buttons */}
             <View style={styles.accountActionsRow}>
               <TouchableOpacity
-                style={styles.syncNowBtn}
+                style={styles.syncActionBtn}
                 onPress={handleManualSync}
                 disabled={syncing}
                 activeOpacity={0.8}
@@ -263,18 +375,18 @@ export default function ProfileScreen() {
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <>
-                    <Text style={styles.syncNowIcon}>☁️</Text>
-                    <Text style={styles.syncNowText}>Sync to Cloud Now</Text>
+                    <Text style={styles.syncActionIcon}>☁️</Text>
+                    <Text style={styles.syncActionText}>Sync Cloud Now</Text>
                   </>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.signOutBtn}
+                style={styles.signOutActionBtn}
                 onPress={handleSignOut}
                 activeOpacity={0.8}
               >
-                <Text style={styles.signOutText}>Sign Out</Text>
+                <Text style={styles.signOutActionText}>Sign Out</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -282,66 +394,65 @@ export default function ProfileScreen() {
           <TouchableOpacity
             style={styles.connectGoogleCard}
             onPress={() => setAuthModalVisible(true)}
-            activeOpacity={0.88}
+            activeOpacity={0.85}
           >
             <View style={styles.connectGoogleIconBg}>
               <Text style={styles.connectGoogleIcon}>🌐</Text>
             </View>
             <View style={styles.connectGoogleTextCol}>
-              <Text style={styles.connectGoogleTitle}>Sign in with Google to Sync Location</Text>
+              <Text style={styles.connectGoogleTitle}>Link Google Account to Sync Location</Text>
               <Text style={styles.connectGoogleSub}>
-                Automatically back up your live coordinates, parents' numbers, and medical ID to Google Cloud.
+                Automatically backs up your live coordinates, parents' numbers, and medical ID.
               </Text>
               <View style={styles.connectGooglePill}>
-                <Text style={styles.connectGooglePillText}>CONNECT GOOGLE ACCOUNT ➔</Text>
+                <Text style={styles.connectGooglePillText}>CONNECT ACCOUNT ➔</Text>
               </View>
             </View>
           </TouchableOpacity>
         )}
 
-        {/* Offline Status Pill */}
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineIcon}>⚡</Text>
-          <View style={styles.offlineTextContainer}>
-            <Text style={styles.offlineTitle}>Device Disk Storage Active</Text>
-            <Text style={styles.offlineSub}>
-              Contacts & Medical ID securely cached in native disk storage. Works offline.
-            </Text>
-          </View>
-        </View>
-
-        {/* Section 1: Emergency Medical ID */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Text style={styles.cardIcon}>🩺</Text>
-              <Text style={styles.cardTitle}>Emergency Medical ID</Text>
+        {/* ========================================================
+            2. EMERGENCY MEDICAL ID CONSOLE
+        ======================================================== */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIconBadge, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                <Text style={styles.sectionIconEmoji}>🩺</Text>
+              </View>
+              <View>
+                <Text style={styles.sectionTitle}>Emergency Medical ID</Text>
+                <Text style={styles.sectionSub}>Critical health directives for first-responders</Text>
+              </View>
             </View>
+
             <TouchableOpacity
-              style={styles.editBtn}
+              style={[styles.headerActionPill, isEditingProfile && styles.headerActionPillSave]}
               onPress={() => {
                 if (isEditingProfile) handleSaveProfile();
                 else setIsEditingProfile(true);
               }}
+              activeOpacity={0.8}
             >
-              <Text style={styles.editBtnText}>
-                {isEditingProfile ? 'Save' : 'Edit'}
+              <Text style={[styles.headerActionPillText, isEditingProfile && styles.headerActionPillTextSave]}>
+                {isEditingProfile ? '✓ Save' : '✏️ Edit'}
               </Text>
             </TouchableOpacity>
           </View>
 
           {isEditingProfile ? (
             <View style={styles.formContainer}>
-              <Text style={styles.inputLabel}>Full Name</Text>
+              <Text style={styles.inputLabel}>FULL NAME</Text>
               <TextInput
-                style={styles.input}
+                style={styles.textInput}
                 value={profile.name}
                 onChangeText={(v) => setProfile({ ...profile, name: v })}
                 placeholder="e.g. Alex Morgan"
+                placeholderTextColor={THEME.textMuted}
               />
 
-              <Text style={styles.inputLabel}>Blood Type</Text>
-              <View style={styles.bloodTypeRow}>
+              <Text style={styles.inputLabel}>BLOOD GROUP</Text>
+              <View style={styles.bloodTypeGrid}>
                 {BLOOD_TYPES.map((bt) => (
                   <TouchableOpacity
                     key={bt}
@@ -350,6 +461,7 @@ export default function ProfileScreen() {
                       profile.bloodType.startsWith(bt) && styles.bloodChipActive,
                     ]}
                     onPress={() => setProfile({ ...profile, bloodType: bt })}
+                    activeOpacity={0.75}
                   >
                     <Text
                       style={[
@@ -363,99 +475,125 @@ export default function ProfileScreen() {
                 ))}
               </View>
 
-              <Text style={styles.inputLabel}>Known Allergies</Text>
+              <Text style={styles.inputLabel}>KNOWN ALLERGIES</Text>
               <TextInput
-                style={styles.input}
+                style={styles.textInput}
                 value={profile.allergies}
                 onChangeText={(v) => setProfile({ ...profile, allergies: v })}
-                placeholder="e.g. Penicillin, Peanuts"
+                placeholder="e.g. Penicillin, Peanuts, Sulfa drugs"
+                placeholderTextColor={THEME.textMuted}
               />
 
-              <Text style={styles.inputLabel}>Medical Conditions & Emergency Notes</Text>
+              <Text style={styles.inputLabel}>CONDITIONS & EMERGENCY NOTES</Text>
               <TextInput
-                style={[styles.input, styles.textArea]}
+                style={[styles.textInput, styles.textAreaInput]}
                 multiline
                 numberOfLines={3}
                 value={profile.emergencyNotes}
                 onChangeText={(v) => setProfile({ ...profile, emergencyNotes: v })}
-                placeholder="e.g. Asthmatic, carries epi-pen in bag"
+                placeholder="e.g. Asthmatic, carries inhaler. Contact Dr. Sharma: 98221 00000"
+                placeholderTextColor={THEME.textMuted}
               />
             </View>
           ) : (
-            <View style={styles.infoGrid}>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>User Name</Text>
-                <Text style={styles.infoValue}>{profile.name || 'Not specified'}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Blood Group</Text>
-                <View style={styles.bloodBadge}>
-                  <Text style={styles.bloodBadgeText}>{profile.bloodType || 'Unknown'}</Text>
+            <View style={styles.medicalInfoGrid}>
+              <View style={styles.medicalTileRow}>
+                <View style={styles.medicalTile}>
+                  <Text style={styles.medicalTileLabel}>BLOOD GROUP</Text>
+                  <View style={styles.bloodBadgeLarge}>
+                    <Text style={styles.bloodBadgeLargeText}>{profile.bloodType || 'O+'}</Text>
+                  </View>
+                </View>
+
+                <View style={[styles.medicalTile, { flex: 2 }]}>
+                  <Text style={styles.medicalTileLabel}>REGISTERED NAME</Text>
+                  <Text style={styles.medicalTileValue} numberOfLines={1}>
+                    {profile.name || currentUser?.name || 'Guardian User'}
+                  </Text>
                 </View>
               </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Allergies</Text>
-                <Text style={styles.infoValue}>{profile.allergies || 'None listed'}</Text>
+
+              <View style={styles.medicalDetailBlock}>
+                <Text style={styles.medicalTileLabel}>KNOWN ALLERGIES</Text>
+                <Text style={styles.medicalTileSubValue}>
+                  {profile.allergies || 'No allergies recorded'}
+                </Text>
               </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Emergency Notes</Text>
-                <Text style={styles.infoValue}>
-                  {profile.emergencyNotes || 'No notes specified'}
+
+              <View style={styles.medicalDetailBlock}>
+                <Text style={styles.medicalTileLabel}>EMERGENCY MEDICAL NOTES</Text>
+                <Text style={styles.medicalTileSubValue}>
+                  {profile.emergencyNotes || 'No specific emergency instructions provided'}
                 </Text>
               </View>
             </View>
           )}
         </View>
 
-        {/* Section 2: Guardian Contacts */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <View style={styles.cardTitleRow}>
-              <Text style={styles.cardIcon}>🛡️</Text>
-              <Text style={styles.cardTitle}>Trusted Guardians ({contacts.length})</Text>
+        {/* ========================================================
+            3. TRUSTED GUARDIANS NETWORK (CONTACTS)
+        ======================================================== */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIconBadge, { backgroundColor: THEME.emeraldBg }]}>
+                <Text style={styles.sectionIconEmoji}>🛡️</Text>
+              </View>
+              <View>
+                <Text style={styles.sectionTitle}>Trusted Guardians ({contacts.length})</Text>
+                <Text style={styles.sectionSub}>Automated SMS & live GPS recipients</Text>
+              </View>
             </View>
+
             <TouchableOpacity
-              style={styles.addBtn}
+              style={styles.headerAddBtn}
               onPress={() => setAddContactModal(true)}
+              activeOpacity={0.8}
             >
-              <Text style={styles.addBtnText}>+ Add</Text>
+              <Text style={styles.headerAddBtnText}>+ Add</Text>
             </TouchableOpacity>
           </View>
 
           {contacts.length === 0 ? (
-            <Text style={styles.emptyText}>
-              No emergency contacts yet. Tap "+ Add" to add family or friends.
-            </Text>
+            <View style={styles.emptyContactsCard}>
+              <Text style={styles.emptyContactsIcon}>👥</Text>
+              <Text style={styles.emptyContactsTitle}>No Emergency Guardians Linked</Text>
+              <Text style={styles.emptyContactsSub}>
+                Add parents or spouse so the big SOS reactor immediately broadcasts to them.
+              </Text>
+            </View>
           ) : (
             contacts.map((contact) => (
-              <View key={contact.id} style={styles.contactItem}>
-                <View style={styles.contactDetails}>
+              <View key={contact.id} style={styles.contactCard}>
+                <View style={styles.contactMainCol}>
                   <View style={styles.contactNameRow}>
                     <Text style={styles.contactName}>{contact.name}</Text>
                     {contact.isPrimary && (
-                      <View style={styles.primaryBadge}>
-                        <Text style={styles.primaryBadgeText}>PRIMARY</Text>
+                      <View style={styles.primaryContactBadge}>
+                        <Text style={styles.primaryContactBadgeText}>PRIMARY DISPATCH</Text>
                       </View>
                     )}
                   </View>
                   <Text style={styles.contactPhone}>{contact.phone}</Text>
-                  <Text style={styles.contactRel}>{contact.relationship}</Text>
+                  <Text style={styles.contactRel}>Relation: {contact.relationship}</Text>
                 </View>
 
-                <View style={styles.contactActions}>
+                <View style={styles.contactActionsCol}>
                   {!contact.isPrimary && (
                     <TouchableOpacity
-                      style={styles.makePrimaryBtn}
+                      style={styles.makePrimaryPill}
                       onPress={() => handleTogglePrimary(contact.id)}
+                      activeOpacity={0.75}
                     >
-                      <Text style={styles.makePrimaryText}>Make Primary</Text>
+                      <Text style={styles.makePrimaryPillText}>Set Primary</Text>
                     </TouchableOpacity>
                   )}
                   <TouchableOpacity
-                    style={styles.deleteContactBtn}
+                    style={styles.deleteContactIconBtn}
                     onPress={() => handleDeleteContact(contact.id)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
-                    <Text style={styles.deleteContactText}>🗑️</Text>
+                    <Text style={styles.deleteContactIcon}>🗑️</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -463,145 +601,342 @@ export default function ProfileScreen() {
           )}
         </View>
 
-        {/* Section 3: Recent SOS Alert Log */}
-        <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <Text style={styles.cardIcon}>🚨</Text>
-            <Text style={styles.cardTitle}>Recent SOS Dispatch History</Text>
+        {/* ========================================================
+            4. HARDWARE & STEALTH SECURITY TRIGGERS
+        ======================================================== */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIconBadge, { backgroundColor: THEME.amberBg }]}>
+                <Text style={styles.sectionIconEmoji}>⚡</Text>
+              </View>
+              <View>
+                <Text style={styles.sectionTitle}>Hardware & Stealth Security</Text>
+                <Text style={styles.sectionSub}>Instant covert emergency triggers</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Power Button Triple-Press SOS */}
+          <View style={styles.triggerRow}>
+            <View style={styles.triggerTextCol}>
+              <View style={styles.triggerTitleRow}>
+                <Text style={styles.triggerTitle}>Power Button 3x SOS</Text>
+                <View style={styles.stealthPill}>
+                  <Text style={styles.stealthPillText}>HARDWARE</Text>
+                </View>
+              </View>
+              <Text style={styles.triggerDesc}>
+                Triple-press power button within 3 seconds to launch 5s countdown & dispatch live GPS to parents.
+              </Text>
+            </View>
+            <Switch
+              value={powerTriggerEnabled}
+              onValueChange={handleTogglePowerTrigger}
+              trackColor={{ false: '#334155', true: THEME.primary }}
+              thumbColor={powerTriggerEnabled ? '#FFFFFF' : '#94A3B8'}
+            />
+          </View>
+
+          <View style={styles.cardDivider} />
+
+          {/* Lock-Screen Emergency Notification */}
+          <View style={styles.triggerRow}>
+            <View style={styles.triggerTextCol}>
+              <Text style={styles.triggerTitle}>Lock-Screen Emergency Bar</Text>
+              <Text style={styles.triggerDesc}>
+                Display persistent notification on lock screen with 1-tap SOS trigger without unlocking device.
+              </Text>
+            </View>
+            <Switch
+              value={lockNotificationEnabled}
+              onValueChange={handleToggleLockNotification}
+              trackColor={{ false: '#334155', true: THEME.blue }}
+              thumbColor={lockNotificationEnabled ? '#FFFFFF' : '#94A3B8'}
+            />
+          </View>
+
+          <View style={styles.cardDivider} />
+
+          {/* First Aid Playbooks Shortcut */}
+          <TouchableOpacity
+            style={styles.firstAidBannerBtn}
+            onPress={() => setFirstAidModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.firstAidBannerIcon}>🩺</Text>
+            <View style={styles.firstAidBannerTextCol}>
+              <Text style={styles.firstAidBannerTitle}>Offline First-Aid & Survival Guides</Text>
+              <Text style={styles.firstAidBannerSub}>CPR Metronome, Bleeding, Snakebites, Burns & Floods</Text>
+            </View>
+            <Text style={styles.firstAidBannerArrow}>➔</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ========================================================
+            5. DISPLAY & THEME PREFERENCE (USER CHOICE)
+        ======================================================== */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIconBadge, { backgroundColor: THEME.purpleBg }]}>
+                <Text style={styles.sectionIconEmoji}>🎨</Text>
+              </View>
+              <View>
+                <Text style={styles.sectionTitle}>Display & Theme Preference</Text>
+                <Text style={styles.sectionSub}>Active based on your choice</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.themeOptionsGrid}>
+            {/* Light Mode Option */}
+            <TouchableOpacity
+              style={[
+                styles.themeOptionCard,
+                themePreference === 'light' && styles.themeOptionCardActive,
+              ]}
+              onPress={() => setThemePreference('light')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.themeOptionEmoji}>☀️</Text>
+              <View style={styles.themeOptionInfo}>
+                <Text
+                  style={[
+                    styles.themeOptionTitle,
+                    themePreference === 'light' && styles.themeOptionTitleActive,
+                  ]}
+                >
+                  Light Mode
+                </Text>
+                <Text style={styles.themeOptionDesc}>High-visibility clean daylight theme</Text>
+              </View>
+              {themePreference === 'light' && (
+                <View style={styles.themeActiveBadge}>
+                  <Text style={styles.themeActiveBadgeText}>✓ ACTIVE</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* Dark Mode Option */}
+            <TouchableOpacity
+              style={[
+                styles.themeOptionCard,
+                themePreference === 'dark' && styles.themeOptionCardActive,
+              ]}
+              onPress={() => setThemePreference('dark')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.themeOptionEmoji}>🌙</Text>
+              <View style={styles.themeOptionInfo}>
+                <Text
+                  style={[
+                    styles.themeOptionTitle,
+                    themePreference === 'dark' && styles.themeOptionTitleActive,
+                  ]}
+                >
+                  Dark Mode
+                </Text>
+                <Text style={styles.themeOptionDesc}>Tactical command obsidian theme</Text>
+              </View>
+              {themePreference === 'dark' && (
+                <View style={styles.themeActiveBadge}>
+                  <Text style={styles.themeActiveBadgeText}>✓ ACTIVE</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            {/* System Default Option */}
+            <TouchableOpacity
+              style={[
+                styles.themeOptionCard,
+                themePreference === 'system' && styles.themeOptionCardActive,
+              ]}
+              onPress={() => setThemePreference('system')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.themeOptionEmoji}>📱</Text>
+              <View style={styles.themeOptionInfo}>
+                <Text
+                  style={[
+                    styles.themeOptionTitle,
+                    themePreference === 'system' && styles.themeOptionTitleActive,
+                  ]}
+                >
+                  System Default
+                </Text>
+                <Text style={styles.themeOptionDesc}>Follows device display settings</Text>
+              </View>
+              {themePreference === 'system' && (
+                <View style={styles.themeActiveBadge}>
+                  <Text style={styles.themeActiveBadgeText}>✓ ACTIVE</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* ========================================================
+            6. ACADEMIC & VIVA PRESENTATION SETTINGS
+        ======================================================== */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIconBadge, { backgroundColor: THEME.blueBg }]}>
+                <Text style={styles.sectionIconEmoji}>🎓</Text>
+              </View>
+              <View>
+                <Text style={styles.sectionTitle}>Academic & Viva Presentation</Text>
+                <Text style={styles.sectionSub}>Examiner evaluation & simulation controls</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Examiner Demo Mode Switch */}
+          <View style={styles.triggerRow}>
+            <View style={styles.triggerTextCol}>
+              <View style={styles.triggerTitleRow}>
+                <Text style={styles.triggerTitle}>Examiner Demo Mode</Text>
+                <View style={[styles.stealthPill, { backgroundColor: THEME.blueBg, borderColor: THEME.blue }]}>
+                  <Text style={[styles.stealthPillText, { color: THEME.blue }]}>VIVA READY</Text>
+                </View>
+              </View>
+              <Text style={styles.triggerDesc}>
+                Simulate full end-to-end SOS packet transmission and display an interactive Guardian Receiver Console (Dad's Phone) without needing real SIM SMS balance.
+              </Text>
+            </View>
+            <Switch
+              value={demoModeEnabled}
+              onValueChange={handleToggleDemoMode}
+              trackColor={{ false: '#334155', true: THEME.blue }}
+              thumbColor={demoModeEnabled ? '#FFFFFF' : '#94A3B8'}
+            />
+          </View>
+
+          <View style={styles.cardDivider} />
+
+          {/* Test Guardian Alert Trigger Button */}
+          <TouchableOpacity
+            style={[styles.firstAidBannerBtn, { borderColor: THEME.blue }]}
+            onPress={handleTestDemoTrigger}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.firstAidBannerIcon}>📱</Text>
+            <View style={styles.firstAidBannerTextCol}>
+              <Text style={styles.firstAidBannerTitle}>Test Guardian Alert Dispatch</Text>
+              <Text style={styles.firstAidBannerSub}>Open simulated parent device screen directly for demonstration</Text>
+            </View>
+            <Text style={[styles.firstAidBannerArrow, { color: THEME.blue }]}>➔</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ========================================================
+            7. EMERGENCY DISPATCH AUDIT LOG (HISTORY)
+        ======================================================== */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionCardHeader}>
+            <View style={styles.sectionTitleRow}>
+              <View style={[styles.sectionIconBadge, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+                <Text style={styles.sectionIconEmoji}>🚨</Text>
+              </View>
+              <View>
+                <Text style={styles.sectionTitle}>Dispatch History</Text>
+                <Text style={styles.sectionSub}>Recent alert sessions & transmission logs</Text>
+              </View>
+            </View>
           </View>
 
           {history.length === 0 ? (
-            <Text style={styles.emptyText}>
-              No emergency alerts recorded. Your system is safe and ready.
-            </Text>
+            <View style={styles.emptyHistoryBox}>
+              <Text style={styles.emptyHistoryText}>
+                No emergency alerts recorded. Your system is armed, secure, and ready.
+              </Text>
+            </View>
           ) : (
             history.slice(0, 5).map((item) => (
-              <View key={item.id} style={styles.historyItem}>
-                <View style={styles.historyHeader}>
-                  <Text style={styles.historyStatus}>
-                    {item.status.toUpperCase()} ALERT
-                  </Text>
-                  <Text style={styles.historyDate}>
+              <View key={item.id} style={styles.historyCard}>
+                <View style={styles.historyTopRow}>
+                  <View
+                    style={[
+                      styles.historyStatusPill,
+                      item.status === 'resolved'
+                        ? { backgroundColor: THEME.emeraldBg, borderColor: THEME.emeraldBorder }
+                        : { backgroundColor: THEME.primaryBg, borderColor: THEME.primaryBorder },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.historyStatusText,
+                        item.status === 'resolved' ? { color: THEME.emerald } : { color: THEME.primary },
+                      ]}
+                    >
+                      {item.status.toUpperCase()} ALERT
+                    </Text>
+                  </View>
+                  <Text style={styles.historyTimestamp}>
                     {new Date(item.timestamp).toLocaleDateString()}{' '}
-                    {new Date(item.timestamp).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </Text>
                 </View>
-                <Text style={styles.historyCoords}>
-                  Coordinates: {item.coords.latitude.toFixed(4)},{' '}
-                  {item.coords.longitude.toFixed(4)}
+
+                <Text style={styles.historyCoordsText}>
+                  📍 GPS: {item.coords.latitude.toFixed(4)}, {item.coords.longitude.toFixed(4)}
                 </Text>
-                <Text style={styles.historyNotified}>
-                  Pushed to: {item.contactsNotified.join(', ')}
+                <Text style={styles.historyRecipientsText}>
+                  Dispatched to: {item.contactsNotified.join(', ') || 'Parents'}
                 </Text>
               </View>
             ))
           )}
         </View>
 
-        {/* Section 4: Hardware & Stealth Triggers */}
-        <View style={styles.card}>
-          <View style={styles.cardTitleRow}>
-            <Text style={styles.cardIcon}>⚡</Text>
-            <Text style={styles.cardTitle}>Hardware & Stealth Triggers</Text>
-          </View>
-
-          {/* Power Button Triple-Press SOS */}
-          <View style={styles.settingRow}>
-            <View style={styles.settingTextCol}>
-              <View style={styles.settingTitleRow}>
-                <Text style={styles.settingTitle}>Power Button Triple-Press SOS</Text>
-                <View style={styles.activePill}>
-                  <Text style={styles.activePillText}>STEALTH</Text>
-                </View>
-              </View>
-              <Text style={styles.settingDesc}>
-                Press the power button 3 times in 3 seconds while screen is locked to initiate emergency countdown & dispatch live GPS to parents.
-              </Text>
-            </View>
-            <Switch
-              value={powerTriggerEnabled}
-              onValueChange={handleTogglePowerTrigger}
-              trackColor={{ false: '#CBD5E1', true: '#EF4444' }}
-              thumbColor={powerTriggerEnabled ? '#FFFFFF' : '#F1F5F9'}
-            />
-          </View>
-
-          <View style={styles.settingDivider} />
-
-          {/* Lock-Screen Emergency Notification */}
-          <View style={styles.settingRow}>
-            <View style={styles.settingTextCol}>
-              <Text style={styles.settingTitle}>Lock-Screen Emergency Action Bar</Text>
-              <Text style={styles.settingDesc}>
-                Show persistent notification on lock screen with 1-tap SOS and live protection access without unlocking your phone.
-              </Text>
-            </View>
-            <Switch
-              value={lockNotificationEnabled}
-              onValueChange={handleToggleLockNotification}
-              trackColor={{ false: '#CBD5E1', true: '#0284C7' }}
-              thumbColor={lockNotificationEnabled ? '#FFFFFF' : '#F1F5F9'}
-            />
-          </View>
-
-          <View style={styles.settingDivider} />
-
-          {/* Offline First Aid Quick Access */}
-          <TouchableOpacity
-            style={styles.firstAidProfileBtn}
-            onPress={() => setFirstAidModalVisible(true)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.firstAidProfileIcon}>🩺</Text>
-            <View style={styles.firstAidProfileCol}>
-              <Text style={styles.firstAidProfileTitle}>Offline First-Aid & Survival Guides</Text>
-              <Text style={styles.firstAidProfileSub}>CPR Metronome, Bleeding, Snakebites, Burns & Floods</Text>
-            </View>
-            <Text style={styles.firstAidProfileArrow}>➔</Text>
-          </TouchableOpacity>
-        </View>
+        <View style={{ height: 40 }} />
+        </Animated.View>
       </ScrollView>
 
+      {/* ========================================================
+          MODALS: ADD CONTACT, AUTH, FIRST-AID
+      ======================================================== */}
       {/* Modal: Add Guardian Contact */}
       <Modal
         visible={addContactModal}
-        animationType="slide"
+        animationType="fade"
         transparent
         onRequestClose={() => setAddContactModal(false)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={styles.modalContent}>
+          <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add Trusted Guardian</Text>
               <TouchableOpacity onPress={() => setAddContactModal(false)}>
-                <Text style={styles.modalClose}>✕</Text>
+                <Text style={styles.modalCloseIcon}>✕</Text>
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.inputLabel}>Full Name</Text>
+            <Text style={styles.inputLabel}>FULL NAME</Text>
             <TextInput
-              style={styles.input}
-              placeholder="e.g. John Doe"
+              style={styles.textInput}
+              placeholder="e.g. Mom / Dad / John Doe"
+              placeholderTextColor={THEME.textMuted}
               value={newContactName}
               onChangeText={setNewContactName}
             />
 
-            <Text style={styles.inputLabel}>Phone Number</Text>
+            <Text style={styles.inputLabel}>MOBILE PHONE NUMBER</Text>
             <TextInput
-              style={styles.input}
-              placeholder="e.g. +1 (555) 123-4567"
+              style={styles.textInput}
+              placeholder="e.g. +91 98230 12345"
+              placeholderTextColor={THEME.textMuted}
               keyboardType="phone-pad"
               value={newContactPhone}
               onChangeText={setNewContactPhone}
             />
 
-            <Text style={styles.inputLabel}>Relationship</Text>
+            <Text style={styles.inputLabel}>RELATIONSHIP</Text>
             <TextInput
-              style={styles.input}
-              placeholder="e.g. Parent, Sibling, Friend"
+              style={styles.textInput}
+              placeholder="e.g. Parent, Spouse, Sibling, Friend"
+              placeholderTextColor={THEME.textMuted}
               value={newContactRel}
               onChangeText={setNewContactRel}
             />
@@ -614,15 +949,15 @@ export default function ProfileScreen() {
               <View style={[styles.checkbox, newContactPrimary && styles.checkboxActive]}>
                 {newContactPrimary && <Text style={styles.checkmark}>✓</Text>}
               </View>
-              <Text style={styles.checkboxLabel}>Set as Primary Guardian (1st to receive SOS)</Text>
+              <Text style={styles.checkboxLabel}>Set as Primary Recipient for 1-Tap SOS</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.submitBtn}
+              style={styles.submitModalBtn}
               onPress={handleAddContact}
-              activeOpacity={0.8}
+              activeOpacity={0.85}
             >
-              <Text style={styles.submitBtnText}>Save Guardian Contact</Text>
+              <Text style={styles.submitModalBtnText}>Save Guardian Contact</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -641,378 +976,139 @@ export default function ProfileScreen() {
         visible={firstAidModalVisible}
         onClose={() => setFirstAidModalVisible(false)}
       />
+
+      {/* Examiner Demo Mode: Simulated Guardian Console Modal */}
+      <GuardianSimulationModal
+        visible={demoSimModalVisible}
+        onClose={() => setDemoSimModalVisible(false)}
+        payload={activeSimPayload}
+        onAcknowledged={() => {
+          setDemoSimModalVisible(false);
+          Alert.alert(
+            '✅ Two-Way Dispatch Confirmed',
+            'The simulated guardian has acknowledged the alert with ETA 4 minutes.'
+          );
+        }}
+      />
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (THEME: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: THEME.background,
   },
+  mainScrollView: {
+    flex: 1,
+  },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingTop: 8,
     paddingBottom: 40,
   },
-  header: {
-    marginBottom: 16,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: THEME.textPrimary,
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: THEME.textSecondary,
-    marginTop: 4,
-    fontWeight: '500',
-  },
-  offlineBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F0FDF4',
-    padding: 12,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-    marginBottom: 18,
-  },
-  offlineIcon: {
-    fontSize: 20,
-    marginRight: 10,
-  },
-  offlineTextContainer: {
-    flex: 1,
-  },
-  offlineTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#166534',
-  },
-  offlineSub: {
-    fontSize: 11,
-    color: '#15803D',
-    marginTop: 2,
-  },
-  card: {
-    backgroundColor: THEME.cardBg,
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: THEME.border,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  cardTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  cardIcon: {
-    fontSize: 18,
-  },
-  cardTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: THEME.textPrimary,
-  },
-  editBtn: {
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  editBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.secondary,
-  },
-  addBtn: {
-    backgroundColor: THEME.primary,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  addBtnText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  formContainer: {
+
+  // Theme Options
+  themeOptionsGrid: {
+    gap: 10,
     marginTop: 6,
   },
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: THEME.textSecondary,
-    marginBottom: 4,
-    marginTop: 8,
-    textTransform: 'uppercase',
-  },
-  input: {
-    backgroundColor: '#F8FAFC',
-    borderWidth: 1,
-    borderColor: THEME.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: THEME.textPrimary,
-  },
-  textArea: {
-    minHeight: 64,
-    textAlignVertical: 'top',
-  },
-  bloodTypeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginBottom: 6,
-  },
-  bloodChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: '#F1F5F9',
-  },
-  bloodChipActive: {
-    backgroundColor: THEME.primary,
-  },
-  bloodChipText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: THEME.textSecondary,
-  },
-  bloodChipTextActive: {
-    color: '#FFFFFF',
-  },
-  infoGrid: {
-    gap: 10,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F8FAFC',
-  },
-  infoLabel: {
-    fontSize: 13,
-    color: THEME.textSecondary,
-    fontWeight: '600',
-  },
-  infoValue: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: THEME.textPrimary,
-    maxWidth: '65%',
-    textAlign: 'right',
-  },
-  bloodBadge: {
-    backgroundColor: '#FEE2E2',
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-  },
-  bloodBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: THEME.primary,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: THEME.textLight,
-    fontStyle: 'italic',
-    paddingVertical: 8,
-  },
-  contactItem: {
+  themeOptionCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  contactDetails: {
-    flex: 1,
-  },
-  contactNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  contactName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: THEME.textPrimary,
-  },
-  primaryBadge: {
-    backgroundColor: THEME.safeGreenBg,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-  },
-  primaryBadgeText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: THEME.safeGreen,
-  },
-  contactPhone: {
-    fontSize: 12,
-    color: THEME.textSecondary,
-    marginTop: 2,
-  },
-  contactRel: {
-    fontSize: 11,
-    color: THEME.textLight,
-    marginTop: 1,
-  },
-  contactActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  makePrimaryBtn: {
-    backgroundColor: '#EFF6FF',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-  },
-  makePrimaryText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: '#2563EB',
-  },
-  deleteContactBtn: {
-    padding: 6,
-  },
-  deleteContactText: {
-    fontSize: 14,
-  },
-  historyItem: {
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  historyStatus: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: THEME.primary,
-  },
-  historyDate: {
-    fontSize: 11,
-    color: THEME.textLight,
-  },
-  historyCoords: {
-    fontSize: 12,
-    color: THEME.textSecondary,
-    marginTop: 2,
-  },
-  historyNotified: {
-    fontSize: 11,
-    color: THEME.textLight,
-    marginTop: 1,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.6)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 24,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: THEME.textPrimary,
-  },
-  modalClose: {
-    fontSize: 18,
-    color: THEME.textLight,
-    padding: 4,
-  },
-  checkboxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginVertical: 14,
-  },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: THEME.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxActive: {
-    backgroundColor: THEME.primary,
-    borderColor: THEME.primary,
-  },
-  checkmark: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  checkboxLabel: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: THEME.textSecondary,
-    flex: 1,
-  },
-  submitBtn: {
-    backgroundColor: THEME.primary,
-    paddingVertical: 14,
+    backgroundColor: THEME.cardElevated,
     borderRadius: 12,
-    alignItems: 'center',
-    marginTop: 8,
+    borderWidth: 1.5,
+    borderColor: THEME.cardBorder,
+    padding: 12,
+    gap: 12,
   },
-  submitBtnText: {
-    color: '#FFFFFF',
+  themeOptionCardActive: {
+    borderColor: THEME.emerald,
+    backgroundColor: THEME.emeraldBg,
+  },
+  themeOptionEmoji: {
+    fontSize: 22,
+  },
+  themeOptionInfo: {
+    flex: 1,
+  },
+  themeOptionTitle: {
     fontSize: 14,
     fontWeight: '800',
+    color: THEME.textPrimary,
   },
-  accountCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
+  themeOptionTitleActive: {
+    color: THEME.emerald,
+  },
+  themeOptionDesc: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    marginTop: 2,
+  },
+  themeActiveBadge: {
+    backgroundColor: THEME.emerald,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  themeActiveBadgeText: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+
+  // Top Header
+  topHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.cardBorder,
+  },
+  topHeaderTitleCol: {
+    flex: 1,
+  },
+  topHeaderTag: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: THEME.emerald,
+    letterSpacing: 1,
+  },
+  topHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: THEME.textPrimary,
+    marginTop: 1,
+  },
+  secureStorageBadge: {
+    backgroundColor: THEME.cardElevated,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    borderColor: THEME.cardBorder,
   },
-  accountTopRow: {
+  secureStorageText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.textSecondary,
+    letterSpacing: 0.5,
+  },
+
+  // 1. Account Hero Card
+  accountCard: {
+    backgroundColor: THEME.cardBg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 14,
+    marginBottom: 16,
+  },
+  accountHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
@@ -1021,246 +1117,665 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#4285F4',
+    backgroundColor: THEME.blueBg,
+    borderWidth: 2,
+    borderColor: THEME.blue,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   avatarText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
-    color: '#FFFFFF',
+    color: THEME.blue,
   },
-  accountInfoCol: {
+  accountDetailsCol: {
     flex: 1,
   },
   accountNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 2,
+    gap: 8,
   },
-  accountUserName: {
-    fontSize: 16,
+  accountName: {
+    fontSize: 15,
     fontWeight: '800',
     color: THEME.textPrimary,
-    flex: 1,
-    marginRight: 8,
   },
-  providerBadge: {
-    backgroundColor: '#EFF6FF',
-    paddingHorizontal: 8,
+  googleBadge: {
+    backgroundColor: THEME.blueBg,
     paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#BFDBFE',
+    paddingHorizontal: 6,
+    borderRadius: 4,
   },
-  providerBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#2563EB',
+  googleBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: THEME.blue,
+    letterSpacing: 0.5,
   },
-  accountUserEmail: {
-    fontSize: 12,
+  accountEmail: {
+    fontSize: 11,
     color: THEME.textSecondary,
+    marginTop: 2,
   },
-  cloudSyncBox: {
-    backgroundColor: '#F8FAFC',
-    borderRadius: 12,
-    padding: 12,
+  cloudTelemetryBox: {
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 10,
+    padding: 10,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: THEME.cardBorder,
     marginBottom: 12,
   },
-  syncStatusRow: {
+  telemetryStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    gap: 6,
+    marginBottom: 8,
   },
-  syncStatusDot: {
-    fontSize: 10,
-    marginRight: 6,
+  statusLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: THEME.emerald,
   },
-  syncStatusHeadline: {
-    fontSize: 12,
+  telemetryHeadline: {
+    fontSize: 11,
     fontWeight: '800',
-    color: '#15803D',
-    letterSpacing: 0.3,
+    color: THEME.emerald,
   },
-  syncDetailText: {
-    fontSize: 12,
-    color: THEME.textSecondary,
+  telemetryMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: THEME.divider,
+    paddingTop: 8,
+  },
+  telemetryMetricItem: {
+    flex: 1,
+  },
+  telemetryMetricLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: THEME.textMuted,
+    letterSpacing: 0.5,
     marginBottom: 2,
   },
-  syncDetailBold: {
+  telemetryMetricValue: {
+    fontSize: 11,
     fontWeight: '700',
     color: THEME.textPrimary,
   },
   accountActionsRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
-  syncNowBtn: {
+  syncActionBtn: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2563EB',
-    borderRadius: 10,
-    paddingVertical: 10,
+    backgroundColor: THEME.blue,
+    borderRadius: 8,
+    paddingVertical: 8,
+    gap: 6,
   },
-  syncNowIcon: {
-    fontSize: 14,
-    marginRight: 6,
+  syncActionIcon: {
+    fontSize: 12,
   },
-  syncNowText: {
-    fontSize: 13,
+  syncActionText: {
+    fontSize: 11,
     fontWeight: '800',
     color: '#FFFFFF',
   },
-  signOutBtn: {
-    backgroundColor: '#F1F5F9',
-    borderRadius: 10,
-    paddingVertical: 10,
+  signOutActionBtn: {
+    backgroundColor: THEME.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    borderRadius: 8,
+    paddingVertical: 8,
     paddingHorizontal: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  signOutText: {
-    fontSize: 13,
+  signOutActionText: {
+    fontSize: 11,
     fontWeight: '700',
     color: THEME.textSecondary,
   },
+
+  // Connect Google Card (Guest mode)
   connectGoogleCard: {
     flexDirection: 'row',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1.5,
-    borderColor: '#93C5FD',
+    backgroundColor: THEME.cardBg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 14,
     marginBottom: 16,
-    shadowColor: '#3B82F6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 3,
+    alignItems: 'center',
   },
   connectGoogleIconBg: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: THEME.blueBg,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   connectGoogleIcon: {
-    fontSize: 22,
+    fontSize: 20,
   },
   connectGoogleTextCol: {
     flex: 1,
   },
   connectGoogleTitle: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '800',
-    color: '#1E40AF',
-    marginBottom: 3,
+    color: THEME.textPrimary,
+    marginBottom: 2,
   },
   connectGoogleSub: {
-    fontSize: 12,
+    fontSize: 11,
     color: THEME.textSecondary,
-    lineHeight: 16,
+    lineHeight: 15,
     marginBottom: 8,
   },
   connectGooglePill: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#2563EB',
-    paddingHorizontal: 10,
+    backgroundColor: THEME.blueBg,
+    borderWidth: 1,
+    borderColor: THEME.blueBorder,
+    borderRadius: 6,
     paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 8,
+    alignSelf: 'flex-start',
   },
   connectGooglePillText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
+    color: THEME.blue,
     letterSpacing: 0.5,
   },
 
-  // Hardware & Stealth Trigger Styles
-  settingRow: {
+  // Generic Section Card
+  sectionCard: {
+    backgroundColor: THEME.cardBg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 14,
+    marginBottom: 16,
+  },
+  sectionCardHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    alignItems: 'center',
+    marginBottom: 14,
   },
-  settingTextCol: {
-    flex: 1,
-    marginRight: 14,
-  },
-  settingTitleRow: {
+  sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 3,
+    flex: 1,
+    marginRight: 8,
   },
-  settingTitle: {
-    fontSize: 14,
+  sectionIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  sectionIconEmoji: {
+    fontSize: 15,
+  },
+  sectionTitle: {
+    fontSize: 13,
     fontWeight: '800',
     color: THEME.textPrimary,
   },
-  activePill: {
-    backgroundColor: '#FEE2E2',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+  sectionSub: {
+    fontSize: 10,
+    color: THEME.textSecondary,
+    marginTop: 1,
   },
-  activePillText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#DC2626',
+  headerActionPill: {
+    backgroundColor: THEME.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    paddingVertical: 4,
+    paddingHorizontal: 9,
+    borderRadius: 6,
+  },
+  headerActionPillSave: {
+    backgroundColor: THEME.emeraldBg,
+    borderColor: THEME.emeraldBorder,
+  },
+  headerActionPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.textSecondary,
+  },
+  headerActionPillTextSave: {
+    color: THEME.emerald,
+  },
+  headerAddBtn: {
+    backgroundColor: THEME.emeraldBg,
+    borderWidth: 1,
+    borderColor: THEME.emeraldBorder,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+  },
+  headerAddBtnText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.emerald,
+  },
+
+  // Medical Info Grid
+  medicalInfoGrid: {
+    gap: 10,
+  },
+  medicalTileRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  medicalTile: {
+    flex: 1,
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+  medicalTileLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: THEME.textMuted,
     letterSpacing: 0.5,
+    marginBottom: 4,
   },
-  settingDesc: {
-    fontSize: 12,
+  medicalTileValue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  medicalTileSubValue: {
+    fontSize: 11,
     color: THEME.textSecondary,
     lineHeight: 16,
   },
-  settingDivider: {
-    height: 1,
-    backgroundColor: '#F1F5F9',
-    marginVertical: 4,
+  bloodBadgeLarge: {
+    backgroundColor: THEME.primaryBg,
+    borderWidth: 1,
+    borderColor: THEME.primaryBorder,
+    borderRadius: 6,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    alignSelf: 'flex-start',
   },
-  firstAidProfileBtn: {
+  bloodBadgeLargeText: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: THEME.primary,
+  },
+  medicalDetailBlock: {
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+
+  // Medical Form Fields
+  formContainer: {
+    gap: 10,
+  },
+  inputLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.textSecondary,
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  textInput: {
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 12,
+    color: THEME.textPrimary,
+  },
+  textAreaInput: {
+    minHeight: 65,
+    textAlignVertical: 'top',
+  },
+  bloodTypeGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 6,
+  },
+  bloodChip: {
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+  },
+  bloodChipActive: {
+    backgroundColor: THEME.primaryBg,
+    borderColor: THEME.primary,
+  },
+  bloodChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.textSecondary,
+  },
+  bloodChipTextActive: {
+    color: THEME.primary,
+    fontWeight: '900',
+  },
+
+  // Contact Cards
+  emptyContactsCard: {
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 10,
+    padding: 18,
+    alignItems: 'center',
+  },
+  emptyContactsIcon: {
+    fontSize: 22,
+    marginBottom: 6,
+  },
+  emptyContactsTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  emptyContactsSub: {
+    fontSize: 10,
+    color: THEME.textSecondary,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  contactCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0FDFA',
-    borderRadius: 14,
-    padding: 12,
-    marginTop: 8,
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#99F6E4',
+    borderColor: THEME.cardBorder,
+    padding: 12,
+    marginBottom: 8,
   },
-  firstAidProfileIcon: {
-    fontSize: 24,
-    marginRight: 10,
-  },
-  firstAidProfileCol: {
+  contactMainCol: {
     flex: 1,
   },
-  firstAidProfileTitle: {
+  contactNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  contactName: {
     fontSize: 13,
     fontWeight: '800',
-    color: '#0F766E',
+    color: THEME.textPrimary,
   },
-  firstAidProfileSub: {
+  primaryContactBadge: {
+    backgroundColor: THEME.emeraldBg,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: THEME.emeraldBorder,
+  },
+  primaryContactBadgeText: {
+    fontSize: 8,
+    fontWeight: '900',
+    color: THEME.emerald,
+    letterSpacing: 0.5,
+  },
+  contactPhone: {
     fontSize: 11,
-    color: '#14B8A6',
+    color: THEME.blue,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  contactRel: {
+    fontSize: 10,
+    color: THEME.textMuted,
     marginTop: 1,
   },
-  firstAidProfileArrow: {
-    fontSize: 16,
-    color: '#0F766E',
+  contactActionsCol: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  makePrimaryPill: {
+    backgroundColor: THEME.cardBg,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    borderRadius: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  makePrimaryPillText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.textSecondary,
+  },
+  deleteContactIconBtn: {
+    padding: 4,
+  },
+  deleteContactIcon: {
+    fontSize: 13,
+  },
+
+  // Trigger Rows
+  triggerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  triggerTextCol: {
+    flex: 1,
+    marginRight: 12,
+  },
+  triggerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 2,
+  },
+  triggerTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  stealthPill: {
+    backgroundColor: THEME.primaryBg,
+    paddingVertical: 1,
+    paddingHorizontal: 5,
+    borderRadius: 4,
+  },
+  stealthPillText: {
+    fontSize: 7,
     fontWeight: '900',
-    marginLeft: 6,
+    color: THEME.primary,
+    letterSpacing: 0.5,
+  },
+  triggerDesc: {
+    fontSize: 10,
+    color: THEME.textSecondary,
+    lineHeight: 14,
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: THEME.divider,
+    marginVertical: 10,
+  },
+  firstAidBannerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 10,
+  },
+  firstAidBannerIcon: {
+    fontSize: 18,
+    marginRight: 10,
+  },
+  firstAidBannerTextCol: {
+    flex: 1,
+  },
+  firstAidBannerTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  firstAidBannerSub: {
+    fontSize: 10,
+    color: THEME.textSecondary,
+    marginTop: 1,
+  },
+  firstAidBannerArrow: {
+    fontSize: 12,
+    color: THEME.textSecondary,
+  },
+
+  // History Cards
+  emptyHistoryBox: {
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 10,
+    padding: 14,
+    alignItems: 'center',
+  },
+  emptyHistoryText: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    textAlign: 'center',
+  },
+  historyCard: {
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 10,
+    marginBottom: 8,
+  },
+  historyTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  historyStatusPill: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  historyStatusText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  historyTimestamp: {
+    fontSize: 10,
+    color: THEME.textMuted,
+  },
+  historyCoordsText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.textPrimary,
+    marginTop: 2,
+  },
+  historyRecipientsText: {
+    fontSize: 10,
+    color: THEME.textSecondary,
+    marginTop: 1,
+  },
+
+  // Modal: Add Contact
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: THEME.cardBg,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  modalCloseIcon: {
+    fontSize: 18,
+    color: THEME.textSecondary,
+    padding: 4,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 16,
+    gap: 8,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: THEME.textMuted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxActive: {
+    backgroundColor: THEME.emerald,
+    borderColor: THEME.emerald,
+  },
+  checkmark: {
+    fontSize: 11,
+    color: '#FFFFFF',
+    fontWeight: '900',
+  },
+  checkboxLabel: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    flex: 1,
+  },
+  submitModalBtn: {
+    backgroundColor: THEME.primary,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  submitModalBtnText: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
   },
 });

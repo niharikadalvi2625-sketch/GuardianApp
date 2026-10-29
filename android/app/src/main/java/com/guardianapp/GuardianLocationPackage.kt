@@ -9,7 +9,9 @@ class GuardianLocationPackage : ReactPackage {
     override fun createNativeModules(reactContext: ReactApplicationContext): List<NativeModule> {
         return listOf(
             GuardianLocationModule(reactContext),
-            GuardianAlertModule(reactContext)
+            GuardianAlertModule(reactContext),
+            GuardianSQLiteModule(reactContext),
+            GuardianCameraModule(reactContext)
         )
     }
 

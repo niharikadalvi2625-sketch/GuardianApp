@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   StyleSheet,
   Text,
@@ -9,34 +9,20 @@ import {
   ActivityIndicator,
   Alert,
   PanResponder,
+  Modal,
+  Dimensions,
+  Animated,
+  StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SafeZoneService } from '../services/safeZoneService';
 import { LocationService } from '../services/locationService';
 import { AlertService } from '../services/alertService';
 import { SafeZone, SafeZoneCategory, LocationCoords } from '../types/index';
+import { useTheme } from '../context/ThemeContext';
+import { ThemeColors } from '../theme/colors';
 
-const THEME = {
-  primary: '#E63946',
-  primaryDark: '#B71C1C',
-  secondary: '#1D3557',
-  background: '#F8F9FA',
-  cardBg: '#FFFFFF',
-  textPrimary: '#1E293B',
-  textSecondary: '#64748B',
-  textLight: '#94A3B8',
-  safeGreen: '#2A9D8F',
-  safeGreenBg: '#E8F5E9',
-  blue: '#3B82F6',
-  blueBg: '#EFF6FF',
-  amber: '#F59E0B',
-  amberBg: '#FEF3C7',
-  border: '#E2E8F0',
-  shelterPurple: '#7C3AED',
-  shelterPurpleBg: '#F3E8FF',
-  clinicTeal: '#0D9488',
-  clinicTealBg: '#CCFBF1',
-};
+const { width } = Dimensions.get('window');
 
 const CATEGORIES: { id: SafeZoneCategory | 'all'; label: string; icon: string }[] = [
   { id: 'all', label: 'All', icon: '🌐' },
@@ -55,6 +41,10 @@ const QUICK_TAGS = [
 ];
 
 export default function SafeZonesScreen() {
+  const { theme, isDark } = useTheme();
+  const THEME = theme;
+  const styles = useMemo(() => getStyles(theme), [theme]);
+
   const [loading, setLoading] = useState<boolean>(true);
   const [userCoords, setUserCoords] = useState<LocationCoords | null>(null);
   const [locationDisabled, setLocationDisabled] = useState<boolean>(false);
@@ -63,6 +53,7 @@ export default function SafeZonesScreen() {
   const [selectedZone, setSelectedZone] = useState<SafeZone | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [markingSpot, setMarkingSpot] = useState<boolean>(false);
+  const [markModalVisible, setMarkModalVisible] = useState<boolean>(false);
   const [mapType, setMapType] = useState<'map' | 'satellite'>('map');
   const [mapZoom, setMapZoom] = useState<number>(1);
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -102,8 +93,80 @@ export default function SafeZonesScreen() {
     })
   ).current;
 
+  // Tactical Radar Animations
+  const radarWaveAnim = useRef(new Animated.Value(0)).current;
+  const userGpsPulseAnim = useRef(new Animated.Value(1)).current;
+  const pinHaloAnim = useRef(new Animated.Value(1)).current;
+  const screenFadeAnim = useRef(new Animated.Value(0)).current;
+  const screenSlideAnim = useRef(new Animated.Value(14)).current;
+
   useEffect(() => {
     loadLocationAndZones();
+
+    // Smooth screen entrance
+    Animated.parallel([
+      Animated.timing(screenFadeAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      Animated.spring(screenSlideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Tactical Radar Shockwave Wave Loop
+    const radarWaveLoop = Animated.loop(
+      Animated.timing(radarWaveAnim, {
+        toValue: 1,
+        duration: 2500,
+        useNativeDriver: true,
+      })
+    );
+    radarWaveLoop.start();
+
+    // User GPS breathing dot loop
+    const userGpsPulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(userGpsPulseAnim, {
+          toValue: 1.4,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(userGpsPulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    userGpsPulseLoop.start();
+
+    // Selected Pin Halo Breathing Loop
+    const pinHaloLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pinHaloAnim, {
+          toValue: 1.35,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pinHaloAnim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pinHaloLoop.start();
+
+    return () => {
+      radarWaveLoop.stop();
+      userGpsPulseLoop.stop();
+      pinHaloLoop.stop();
+    };
   }, []);
 
   useEffect(() => {
@@ -128,11 +191,6 @@ export default function SafeZonesScreen() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleOpenGoogleMapsSearch = () => {
-    AlertService.triggerHaptic();
-    SafeZoneService.openGoogleMapsSearch(selectedCategory, userCoords || undefined);
   };
 
   const filterZones = async () => {
@@ -166,10 +224,12 @@ export default function SafeZonesScreen() {
   };
 
   const handleNavigate = (zone: SafeZone) => {
+    AlertService.triggerHaptic();
     SafeZoneService.openNavigation(zone, userCoords || undefined);
   };
 
   const focusPlaceOnMap = (zone: SafeZone) => {
+    AlertService.triggerHaptic();
     setSelectedZone(zone);
     if (userCoords && zone.latitude && zone.longitude) {
       const dLatKm = (zone.latitude - userCoords.latitude) * 111.0;
@@ -186,24 +246,19 @@ export default function SafeZonesScreen() {
   };
 
   const handleCall = (phone: string) => {
+    AlertService.triggerHaptic();
     SafeZoneService.callSafeZone(phone);
   };
 
-  /**
-   * ⚡ 1-TAP INSTANT SAFE SHELTER MARKER (ZERO TYPING REQUIRED):
-   * In a disaster, flood, fire, or emergency, users have no time to write forms.
-   * Grabs live GPS coordinates immediately, reverse-geocodes landmark, and saves instantly.
-   */
   const handleInstantMarkCurrentLocation = async (presetLabel: string = 'Safe Haven') => {
     setMarkingSpot(true);
     try {
       AlertService.triggerHaptic();
-
       const loc = userCoords || (await LocationService.getCurrentLocation());
       setUserCoords(loc);
 
       const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const locality = loc.subLocality || loc.city || 'Emergency Zone';
+      const locality = loc.subLocality || loc.city || 'Emergency Point';
       const shelterName = `${presetLabel} @ ${locality} (${timeStr})`;
       const addr = loc.address || `${locality}, ${loc.region || ''} (${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)})`;
 
@@ -216,17 +271,17 @@ export default function SafeZonesScreen() {
         isOpen24Hours: true,
       });
 
-      // Reload zones and select new shelter
       const updated = await SafeZoneService.getSafeZones(loc, selectedCategory);
       setSafeZones(updated);
       setSelectedZone(created);
+      setMarkModalVisible(false);
 
       Alert.alert(
-        '✅ Safe Shelter Marked Instantly!',
-        `Saved at: ${addr}\n\nZero typing needed! This safe haven is now pinned. Anyone can tap "Directions & Live Navigation" to navigate directly here from their live location.`
+        '✅ Safe Spot Pinned',
+        `Pinned: ${shelterName}\n\nStored securely on local database. You and your family can navigate directly here anytime.`
       );
-    } catch (err) {
-      Alert.alert('GPS Notice', 'Could not acquire GPS coordinates to mark safe haven.');
+    } catch {
+      Alert.alert('GPS Notice', 'Could not acquire GPS fix to pin safe spot.');
     } finally {
       setMarkingSpot(false);
     }
@@ -256,164 +311,142 @@ export default function SafeZonesScreen() {
 
   const getCategoryColor = (category: SafeZoneCategory, isUserAdded?: boolean) => {
     if (isUserAdded) {
-      return { bg: THEME.shelterPurpleBg, text: THEME.shelterPurple, icon: '⭐' };
+      return { bg: THEME.purpleBg, text: THEME.purple, icon: '⭐' };
     }
     switch (category) {
       case 'hospital':
         return { bg: THEME.blueBg, text: THEME.blue, icon: '🏥' };
       case 'clinic':
-        return { bg: THEME.clinicTealBg, text: THEME.clinicTeal, icon: '🩺' };
+        return { bg: THEME.tealBg, text: THEME.teal, icon: '🩺' };
       case 'police':
         return { bg: THEME.amberBg, text: THEME.amber, icon: '👮' };
       case 'shelter':
-        return { bg: THEME.safeGreenBg, text: THEME.safeGreen, icon: '🏠' };
+        return { bg: THEME.emeraldBg, text: THEME.emerald, icon: '🏠' };
       case 'fire_station':
-        return { bg: '#FEE2E2', text: THEME.primary, icon: '🚒' };
+        return { bg: 'rgba(239, 68, 68, 0.15)', text: THEME.primary, icon: '🚒' };
       default:
-        return { bg: '#F1F5F9', text: THEME.textSecondary, icon: '📍' };
+        return { bg: THEME.cardElevated, text: THEME.textSecondary, icon: '📍' };
     }
   };
 
   const getGooglePinStyle = (category: SafeZoneCategory, isUserAdded?: boolean) => {
     if (isUserAdded) {
-      return { pinColor: '#7C3AED', icon: '🛡️', label: 'Safe Haven' };
+      return { pinColor: '#8B5CF6', icon: '🛡️', label: 'Safe Haven' };
     }
     switch (category) {
       case 'hospital':
-        return { pinColor: '#1A73E8', icon: '🏥', label: 'Hospital' };
+        return { pinColor: '#3B82F6', icon: '🏥', label: 'Hospital' };
       case 'clinic':
         return { pinColor: '#0D9488', icon: '🩺', label: 'Clinic' };
       case 'police':
-        return { pinColor: '#EA4335', icon: '👮', label: 'Police' };
+        return { pinColor: '#F59E0B', icon: '👮', label: 'Police' };
       case 'shelter':
-        return { pinColor: '#34A853', icon: '🏠', label: 'Shelter' };
+        return { pinColor: '#10B981', icon: '🏠', label: 'Shelter' };
       case 'fire_station':
-        return { pinColor: '#FBBC04', icon: '🚒', label: 'Fire Dept' };
+        return { pinColor: '#EF4444', icon: '🚒', label: 'Fire Dept' };
       default:
-        return { pinColor: '#EA4335', icon: '📍', label: 'Safe Zone' };
+        return { pinColor: '#EF4444', icon: '📍', label: 'Safe Zone' };
     }
   };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={THEME.primary} />
-        <Text style={styles.loadingText}>Acquiring GPS & Nearest Safe Zones...</Text>
+        <ActivityIndicator size="large" color={THEME.blue} />
+        <Text style={styles.loadingText}>Acquiring GPS Radar & Verified Facilities...</Text>
       </SafeAreaView>
     );
   }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Compact Sticky Top Bar */}
+      <StatusBar barStyle={theme.statusBarStyle} backgroundColor={theme.background} />
+      {/* ========================================================
+          1. TOP COMMAND BAR: TITLE, LOCATION & ACTIONS
+      ======================================================== */}
       <View style={styles.topBar}>
-        <View style={styles.topBarTextCol}>
-          <Text style={styles.topBarTitle}>Safe Zone Finder</Text>
-          <Text style={styles.topBarSubtitle} numberOfLines={1}>
+        <View style={styles.topBarLeftCol}>
+          <Text style={styles.topBarTag}>
+            {isDark ? 'TACTICAL HAVEN RADAR' : 'VERIFIED SAFE HAVENS'}
+          </Text>
+          <Text style={styles.topBarLocation} numberOfLines={1}>
             {userCoords
               ? `📍 ${LocationService.formatLocationName(userCoords)}`
               : 'GPS Standby'}
           </Text>
         </View>
-        <TouchableOpacity style={styles.refreshBtn} onPress={loadLocationAndZones} activeOpacity={0.8}>
-          <Text style={styles.refreshBtnText}>🔄 Refresh</Text>
-        </TouchableOpacity>
+
+        <View style={styles.topBarRightRow}>
+          <TouchableOpacity
+            style={styles.markHavenHeaderBtn}
+            onPress={() => setMarkModalVisible(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.markHavenHeaderIcon}>➕</Text>
+            <Text style={styles.markHavenHeaderText}>Pin Spot</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.refreshHeaderBtn}
+            onPress={loadLocationAndZones}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.refreshHeaderText}>🔄</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Main Smooth Scrollable Body */}
+      {/* Main Body Scroll */}
       <ScrollView
         style={styles.mainScrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={true}
+        showsVerticalScrollIndicator={false}
         nestedScrollEnabled={true}
         keyboardShouldPersistTaps="handled"
         bounces={true}
-        overScrollMode="always"
         scrollEnabled={!isDraggingMap}
       >
-        {/* GPS Warning Banner if disabled */}
+        <Animated.View style={{ flex: 1, opacity: screenFadeAnim, transform: [{ translateY: screenSlideAnim }] }}>
+        {/* GPS Disabled Alert */}
         {locationDisabled && (
           <TouchableOpacity
-            style={styles.gpsWarningBanner}
+            style={styles.gpsDisabledBanner}
             onPress={() => LocationService.openLocationSettings()}
             activeOpacity={0.8}
           >
-            <Text style={styles.gpsWarningIcon}>⚠️</Text>
-            <View style={styles.gpsWarningTextCol}>
-              <Text style={styles.gpsWarningTitle}>Device Location / GPS is OFF</Text>
-              <Text style={styles.gpsWarningSub}>Tap here to turn on Location Services in Settings</Text>
+            <Text style={styles.gpsDisabledIcon}>⚠️</Text>
+            <View style={styles.gpsDisabledTextCol}>
+              <Text style={styles.gpsDisabledTitle}>Device Location / GPS is OFF</Text>
+              <Text style={styles.gpsDisabledSub}>Tap here to enable location for live turn-by-turn routing</Text>
             </View>
-            <Text style={styles.gpsWarningArrow}>⚙️</Text>
+            <Text style={styles.gpsDisabledArrow}>⚙️</Text>
           </TouchableOpacity>
         )}
 
-        {/* ⚡ 1-TAP INSTANT SAFE SPOT MARKER (DISASTER READY - ZERO TYPING) */}
-        <View style={styles.instantMarkContainer}>
-          <TouchableOpacity
-            style={styles.instantMarkBanner}
-            onPress={() => handleInstantMarkCurrentLocation('Safe Haven')}
-            activeOpacity={0.85}
-          >
-            <View style={styles.instantMarkIconBg}>
-              <Text style={styles.instantMarkIcon}>📍</Text>
-            </View>
-            <View style={styles.instantMarkTextCol}>
-              <Text style={styles.instantMarkTitle}>
-                {markingSpot ? 'Acquiring GPS Fix...' : '1-TAP: MARK HERE AS SAFE SHELTER'}
-              </Text>
-              <Text style={styles.instantMarkSub}>
-                Zero typing • Instant live GPS anchor • Direct turn-by-turn navigation
-              </Text>
-            </View>
-            <View style={styles.instantMarkPill}>
-              {markingSpot ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={styles.instantMarkPillText}>+ MARK</Text>
-              )}
-            </View>
-          </TouchableOpacity>
-
-          {/* Quick 1-Touch Label Tags (1-Tap to label instantly without keyboard) */}
-          <View style={styles.quickTagsRow}>
-            <Text style={styles.quickTagsLabel}>INSTANT TAGS:</Text>
-            {QUICK_TAGS.map((tag) => (
-              <TouchableOpacity
-                key={tag.label}
-                style={styles.quickTagChip}
-                onPress={() => handleInstantMarkCurrentLocation(tag.label)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.quickTagChipIcon}>{tag.icon}</Text>
-                <Text style={styles.quickTagChipText}>{tag.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-
-        {/* Search Bar */}
-        <View style={styles.searchBar}>
+        {/* ========================================================
+            2. SEARCH & CATEGORY MATRIX
+        ======================================================== */}
+        <View style={styles.searchBarContainer}>
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
             style={styles.searchInput}
             placeholder="Search hospitals, clinics, police, shelters..."
-            placeholderTextColor={THEME.textLight}
+            placeholderTextColor={THEME.textMuted}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Text style={styles.clearIcon}>✕</Text>
+              <Text style={styles.clearSearchIcon}>✕</Text>
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Category Horizontal Chips */}
+        {/* Category Horizontal Filter Chips */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categoriesScroll}
-          nestedScrollEnabled={true}
+          contentContainerStyle={styles.categoryChipsScroll}
         >
           {CATEGORIES.map((cat) => {
             const isSelected = selectedCategory === cat.id;
@@ -421,17 +454,20 @@ export default function SafeZonesScreen() {
               <TouchableOpacity
                 key={cat.id}
                 style={[
-                  styles.categoryChip,
-                  isSelected && styles.categoryChipActive,
+                  styles.categoryFilterChip,
+                  isSelected && styles.categoryFilterChipActive,
                 ]}
-                onPress={() => setSelectedCategory(cat.id)}
-                activeOpacity={0.7}
+                onPress={() => {
+                  AlertService.triggerHaptic();
+                  setSelectedCategory(cat.id);
+                }}
+                activeOpacity={0.75}
               >
-                <Text style={styles.categoryIcon}>{cat.icon}</Text>
+                <Text style={styles.categoryFilterIcon}>{cat.icon}</Text>
                 <Text
                   style={[
-                    styles.categoryLabel,
-                    isSelected && styles.categoryLabelActive,
+                    styles.categoryFilterText,
+                    isSelected && styles.categoryFilterTextActive,
                   ]}
                 >
                   {cat.label}
@@ -441,135 +477,82 @@ export default function SafeZonesScreen() {
           })}
         </ScrollView>
 
-        {/* --- GOOGLE MAPS LIVE NAVIGATION VIEW --- */}
-        <View style={styles.googleMapCard}>
-          {/* Google Maps Top Bar */}
-          <View style={styles.gMapTopRow}>
-            {/* Map Type Toggle: Map / Satellite */}
-            <View style={styles.gMapTypeToggle}>
+        {/* ========================================================
+            3. INTERACTIVE MAP & ROUTE RADAR CONSOLE
+        ======================================================== */}
+        <View style={styles.mapConsoleCard}>
+          {/* Map Console Top Controller */}
+          <View style={styles.mapConsoleHeader}>
+            <View style={styles.mapModeToggle}>
               <TouchableOpacity
-                style={[
-                  styles.gMapTypeBtn,
-                  mapType === 'map' && styles.gMapTypeBtnActive,
-                ]}
+                style={[styles.mapModeBtn, mapType === 'map' && styles.mapModeBtnActive]}
                 onPress={() => setMapType('map')}
                 activeOpacity={0.8}
               >
-                <Text
-                  style={[
-                    styles.gMapTypeBtnText,
-                    mapType === 'map' && styles.gMapTypeBtnTextActive,
-                  ]}
-                >
+                <Text style={[styles.mapModeText, mapType === 'map' && styles.mapModeTextActive]}>
                   🗺️ Map
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[
-                  styles.gMapTypeBtn,
-                  mapType === 'satellite' && styles.gMapTypeBtnActive,
-                ]}
+                style={[styles.mapModeBtn, mapType === 'satellite' && styles.mapModeBtnActive]}
                 onPress={() => setMapType('satellite')}
                 activeOpacity={0.8}
               >
-                <Text
-                  style={[
-                    styles.gMapTypeBtnText,
-                    mapType === 'satellite' && styles.gMapTypeBtnTextActive,
-                  ]}
-                >
+                <Text style={[styles.mapModeText, mapType === 'satellite' && styles.mapModeTextActive]}>
                   🛰️ Satellite
                 </Text>
               </TouchableOpacity>
             </View>
 
-            {/* Direct Open in Google Maps App Button */}
-            <TouchableOpacity
-              style={styles.gMapOpenAppBtn}
-              onPress={() => {
-                AlertService.triggerHaptic();
-                if (selectedZone) {
-                  handleNavigate(selectedZone);
-                } else if (userCoords) {
-                  SafeZoneService.openAreaInGoogleMaps(userCoords);
-                }
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.gMapOpenAppIcon}>↗️</Text>
-              <Text style={styles.gMapOpenAppText}>Open Google Maps</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Active Driving Navigation Route Card (Google Maps Driving Navigation UI matching user screenshot) */}
-          {selectedZone && (
-            <View style={styles.gMapRouteCard}>
-              <View style={styles.gMapRouteInfo}>
-                <View style={styles.gMapRoutePathRow}>
-                  <View style={styles.gMapRoutePathDots}>
-                    <View style={styles.gMapRouteDotOrigin} />
-                    <View style={styles.gMapRouteDotDash} />
-                    <View style={styles.gMapRouteDotDest} />
-                  </View>
-                  <View style={styles.gMapRoutePathTexts}>
-                    <Text style={styles.gMapRouteOriginText} numberOfLines={1}>
-                      {userCoords?.subLocality || userCoords?.city || 'My Live Location'}
-                    </Text>
-                    <Text style={styles.gMapRouteDestText} numberOfLines={1}>
-                      {selectedZone.name}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Driving Time & Distance ETA pill */}
-                <View style={styles.gMapEtaRow}>
-                  <View style={styles.gMapEtaBadge}>
-                    <Text style={styles.gMapEtaTime}>
-                      {Math.max(2, Math.round((selectedZone.distanceKm ?? 1) * 3.5))} min
-                    </Text>
-                    <Text style={styles.gMapEtaDistance}>
-                      ({selectedZone.distanceKm !== undefined
-                        ? selectedZone.distanceKm < 1
-                          ? `${Math.round(selectedZone.distanceKm * 1000)} m`
-                          : `${selectedZone.distanceKm.toFixed(1)} km`
-                        : 'Nearby'})
-                    </Text>
-                  </View>
-                  <Text style={styles.gMapFastestRouteText}>• Fastest route with live traffic</Text>
-                </View>
-              </View>
-
-              {/* Instant Turn-by-Turn Launch Button */}
+            <View style={styles.mapControlsRow}>
+              {/* Zoom Controls */}
               <TouchableOpacity
-                style={styles.gMapStartNavBtn}
+                style={styles.mapToolBtn}
+                onPress={() => setMapZoom((prev) => Math.min(2.0, Number((prev + 0.25).toFixed(2))))}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.mapToolBtnText}>＋</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.mapToolBtn}
+                onPress={() => setMapZoom((prev) => Math.max(0.75, Number((prev - 0.25).toFixed(2))))}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.mapToolBtnText}>−</Text>
+              </TouchableOpacity>
+
+              {/* Recenter Button */}
+              <TouchableOpacity
+                style={[styles.mapToolBtn, styles.mapRecenterBtn]}
                 onPress={() => {
                   AlertService.triggerHaptic();
-                  handleNavigate(selectedZone);
+                  setPanOffset({ x: 0, y: 0 });
+                  panOffsetRef.current = { x: 0, y: 0 };
+                  setMapZoom(1);
                 }}
-                activeOpacity={0.85}
+                activeOpacity={0.7}
               >
-                <Text style={styles.gMapStartNavIcon}>▶</Text>
-                <Text style={styles.gMapStartNavText}>START NAVIGATION</Text>
+                <Text style={styles.mapRecenterIcon}>⌖</Text>
               </TouchableOpacity>
             </View>
-          )}
+          </View>
 
-          {/* Authentic Google Maps Canvas with 2D Drag-to-Pan Radar & Cluster Fan-out */}
+          {/* Interactive Tactical Canvas */}
           <View
             style={[
-              styles.gMapCanvas,
-              mapType === 'satellite' ? styles.gMapCanvasSatellite : styles.gMapCanvasDefault,
+              styles.tacticalCanvas,
+              mapType === 'satellite' ? styles.canvasSatellite : styles.canvasDefault,
             ]}
             {...panResponder.panHandlers}
           >
             {(() => {
               const originX = 165;
-              const originY = 145;
+              const originY = 140;
               const centerX = originX + panOffset.x;
               const centerY = originY + panOffset.y;
               const baseScale = 32 * mapZoom;
 
-              // 1. Calculate raw projected coordinates for all safe zones
+              // 1. Calculate projected coordinates
               const renderedPlaces = safeZones.slice(0, 25).map((zone) => {
                 let rawX = originX;
                 let rawY = originY;
@@ -581,7 +564,7 @@ export default function SafeZonesScreen() {
                     111.0 *
                     Math.cos((userCoords.latitude * Math.PI) / 180);
                   rawX = originX + panOffset.x + dLonKm * baseScale;
-                  rawY = originY + panOffset.y - dLatKm * baseScale; // Latitude increases northward
+                  rawY = originY + panOffset.y - dLatKm * baseScale;
                 } else if (zone.distanceKm !== undefined) {
                   const hash = Math.abs(zone.name.split('').reduce((acc, c) => acc + c.charCodeAt(0), 0));
                   const angle = (hash % 360) * (Math.PI / 180);
@@ -592,7 +575,7 @@ export default function SafeZonesScreen() {
                 return { zone, rawX, rawY };
               });
 
-              // 2. Cluster nearby pins (within 28px) so they don't stack on top of each other
+              // 2. Spiderfy clustering
               const CLUSTER_RADIUS = 28;
               const clusters: (typeof renderedPlaces)[] = [];
 
@@ -607,20 +590,15 @@ export default function SafeZonesScreen() {
                     break;
                   }
                 }
-                if (!placed) {
-                  clusters.push([item]);
-                }
+                if (!placed) clusters.push([item]);
               }
 
-              // 3. De-cluster / Spiderfy overlapping pins
-              const pinPositions = new Map<string, { posX: number; posY: number; isClustered: boolean }>();
-
+              const pinPositions = new Map<string, { posX: number; posY: number }>();
               for (const cluster of clusters) {
                 if (cluster.length === 1) {
                   pinPositions.set(cluster[0].zone.id, {
                     posX: cluster[0].rawX,
                     posY: cluster[0].rawY,
-                    isClustered: false,
                   });
                 } else {
                   const count = cluster.length;
@@ -630,7 +608,6 @@ export default function SafeZonesScreen() {
                     pinPositions.set(item.zone.id, {
                       posX: item.rawX + Math.cos(angle) * fanRadius,
                       posY: item.rawY + Math.sin(angle) * fanRadius,
-                      isClustered: true,
                     });
                   });
                 }
@@ -638,10 +615,10 @@ export default function SafeZonesScreen() {
 
               return (
                 <>
-                  {/* Range distance rings (1km, 3km, 5km) centered at live GPS position */}
+                  {/* Range rings centered at live GPS position */}
                   <View
                     style={[
-                      styles.gMapRadarRing,
+                      styles.tacticalRing,
                       {
                         left: centerX,
                         top: centerY,
@@ -654,7 +631,7 @@ export default function SafeZonesScreen() {
                   />
                   <View
                     style={[
-                      styles.gMapRadarRing,
+                      styles.tacticalRing,
                       {
                         left: centerX,
                         top: centerY,
@@ -667,7 +644,7 @@ export default function SafeZonesScreen() {
                   />
                   <View
                     style={[
-                      styles.gMapRadarRing,
+                      styles.tacticalRing,
                       {
                         left: centerX,
                         top: centerY,
@@ -679,36 +656,59 @@ export default function SafeZonesScreen() {
                     ]}
                   />
 
-                  {/* Range Label Indicators */}
-                  <Text style={[styles.gMapRadarLabel, { left: centerX + 4, top: centerY - 45 * mapZoom - 8 }]}>1 km</Text>
-                  <Text style={[styles.gMapRadarLabel, { left: centerX + 4, top: centerY - 90 * mapZoom - 8 }]}>3 km</Text>
-                  <Text style={[styles.gMapRadarLabel, { left: centerX + 4, top: centerY - 135 * mapZoom - 8 }]}>5 km</Text>
-
-                  {/* Center User Location Pin (Google Maps Blue Pulsing Dot & Directional Halo) */}
-                  <View
+                  {/* Animated Expanding Tactical Radar Wave */}
+                  <Animated.View
                     style={[
-                      styles.gMapUserDotWrapper,
+                      styles.tacticalRadarWave,
                       {
-                        left: centerX - 15,
-                        top: centerY - 15,
+                        left: centerX,
+                        top: centerY,
+                        transform: [
+                          { translateX: -60 * mapZoom },
+                          { translateY: -60 * mapZoom },
+                          {
+                            scale: radarWaveAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0.4, 2.6],
+                            }),
+                          },
+                        ],
+                        opacity: radarWaveAnim.interpolate({
+                          inputRange: [0, 0.4, 0.8, 1],
+                          outputRange: [0.75, 0.4, 0.12, 0],
+                        }),
                       },
                     ]}
-                  >
-                    <View style={styles.gMapUserBeam} />
-                    <View style={styles.gMapUserPulseRing} />
-                    <View style={styles.gMapUserBlueDot} />
-                    <View style={styles.gMapUserLabelPill}>
-                      <Text style={styles.gMapUserLabelText}>You (Live GPS)</Text>
-                    </View>
+                  />
+
+                  {/* Range Labels */}
+                  <Text style={[styles.tacticalRingLabel, { left: centerX + 4, top: centerY - 45 * mapZoom - 8 }]}>1km</Text>
+                  <Text style={[styles.tacticalRingLabel, { left: centerX + 4, top: centerY - 90 * mapZoom - 8 }]}>3km</Text>
+                  <Text style={[styles.tacticalRingLabel, { left: centerX + 4, top: centerY - 135 * mapZoom - 8 }]}>5km</Text>
+
+                  {/* Live User Anchor with Breathing Sonar Pulse Dot */}
+                  <View style={[styles.userAnchorWrapper, { left: centerX - 12, top: centerY - 12 }]}>
+                    <Animated.View
+                      style={[
+                        styles.userPulseRing,
+                        {
+                          transform: [{ scale: userGpsPulseAnim }],
+                          opacity: userGpsPulseAnim.interpolate({
+                            inputRange: [1, 1.4],
+                            outputRange: [0.85, 0.2],
+                          }),
+                        },
+                      ]}
+                    />
+                    <View style={styles.userCoreDot} />
                   </View>
 
-                  {/* Real Dynamic GPS Pins relative to User Coords */}
+                  {/* Dynamic Facility Pins */}
                   {renderedPlaces.map(({ zone }) => {
                     const pinStyle = getGooglePinStyle(zone.category, zone.isUserAdded);
                     const isSelected = selectedZone?.id === zone.id;
-                    const pos = pinPositions.get(zone.id) || { posX: originX, posY: originY, isClustered: false };
+                    const pos = pinPositions.get(zone.id) || { posX: originX, posY: originY };
 
-                    // Skip rendering if far outside canvas bounds to conserve performance
                     if (pos.posX < -100 || pos.posX > 450 || pos.posY < -100 || pos.posY > 400) {
                       return null;
                     }
@@ -717,7 +717,7 @@ export default function SafeZonesScreen() {
                       <View
                         key={zone.id}
                         style={[
-                          styles.gMapMarkerAnchor,
+                          styles.markerAnchor,
                           {
                             left: pos.posX - 14,
                             top: pos.posY - 32,
@@ -725,52 +725,49 @@ export default function SafeZonesScreen() {
                           },
                         ]}
                       >
-                        {/* Selected Zone Informational Callout Bubble (NO auto-navigation!) */}
+                        {/* Callout Bubble for focused place */}
                         {isSelected && (
-                          <View style={styles.gMapCallout}>
-                            <View style={styles.gMapCalloutRow}>
-                              <Text style={styles.gMapCalloutTitle} numberOfLines={1}>
-                                {zone.name}
-                              </Text>
-                              <Text style={styles.gMapCalloutDist}>
-                                {zone.distanceKm !== undefined
-                                  ? `${zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)}m` : `${zone.distanceKm.toFixed(1)}km`}`
-                                  : 'Near'}
-                              </Text>
-                            </View>
-                            <Text style={styles.gMapCalloutAction}>Tap "START NAVIGATION" to route</Text>
-                            <View style={styles.gMapCalloutArrow} />
+                          <View style={styles.markerCallout}>
+                            <Text style={styles.markerCalloutTitle} numberOfLines={1}>
+                              {zone.name}
+                            </Text>
+                            <Text style={styles.markerCalloutDist}>
+                              {zone.distanceKm !== undefined
+                                ? `${zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)}m` : `${zone.distanceKm.toFixed(1)}km`} • Tap Route below`
+                                : 'Nearby facility'}
+                            </Text>
+                            <View style={styles.markerCalloutArrow} />
                           </View>
                         )}
 
-                        {/* Teardrop Pin - Tapping ONLY selects place without navigating */}
-                        <TouchableOpacity
-                          style={[
-                            styles.gMapTeardropWrapper,
-                            isSelected && styles.gMapTeardropSelected,
-                          ]}
-                          onPress={() => {
-                            AlertService.triggerHaptic();
-                            setSelectedZone(zone);
-                          }}
-                          activeOpacity={0.8}
-                        >
-                          <View
+                        {/* Selected Pin Halo Beacon */}
+                        {isSelected && (
+                          <Animated.View
                             style={[
-                              styles.gMapTeardropHead,
-                              { backgroundColor: pinStyle.pinColor },
-                              isSelected && styles.gMapTeardropHeadActive,
-                            ]}
-                          >
-                            <Text style={styles.gMapTeardropIcon}>{pinStyle.icon}</Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.gMapTeardropPoint,
-                              { borderTopColor: pinStyle.pinColor },
+                              styles.pinHaloRing,
+                              {
+                                backgroundColor: pinStyle.pinColor,
+                                transform: [{ scale: pinHaloAnim }],
+                                opacity: pinHaloAnim.interpolate({
+                                  inputRange: [1, 1.35],
+                                  outputRange: [0.6, 0.1],
+                                }),
+                              },
                             ]}
                           />
-                          <View style={styles.gMapPinShadow} />
+                        )}
+
+                        {/* Interactive Teardrop Pin */}
+                        <TouchableOpacity
+                          style={[
+                            styles.teardropPin,
+                            isSelected && styles.teardropPinSelected,
+                            { backgroundColor: pinStyle.pinColor },
+                          ]}
+                          onPress={() => focusPlaceOnMap(zone)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.teardropIcon}>{pinStyle.icon}</Text>
                         </TouchableOpacity>
                       </View>
                     );
@@ -778,849 +775,591 @@ export default function SafeZonesScreen() {
                 </>
               );
             })()}
-
-            {/* Interactive Map Drag & Pan Hint Badge */}
-            <View style={styles.gMapHintBadge}>
-              <Text style={styles.gMapHintText}>✋ Drag to pan map • ⌖ Recenter</Text>
-            </View>
-
-            {/* Floating Google Maps Controls: Zoom + / - buttons */}
-            <View style={styles.gMapZoomControls}>
-              <TouchableOpacity
-                style={styles.gMapZoomBtn}
-                onPress={() => {
-                  AlertService.triggerHaptic();
-                  setMapZoom((prev) => Math.min(prev + 0.25, 2.0));
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.gMapZoomText}>+</Text>
-              </TouchableOpacity>
-              <View style={styles.gMapZoomDivider} />
-              <TouchableOpacity
-                style={styles.gMapZoomBtn}
-                onPress={() => {
-                  AlertService.triggerHaptic();
-                  setMapZoom((prev) => Math.max(prev - 0.25, 0.75));
-                }}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.gMapZoomText}>−</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Floating Google Controls: My Location Recenter FAB */}
-            <TouchableOpacity
-              style={styles.gMapRecenterFab}
-              onPress={() => {
-                AlertService.triggerHaptic();
-                setPanOffset({ x: 0, y: 0 });
-                panOffsetRef.current = { x: 0, y: 0 };
-                setMapZoom(1);
-                if (safeZones.length > 0) {
-                  setSelectedZone(safeZones[0]);
-                }
-              }}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.gMapRecenterIcon}>⌖</Text>
-            </TouchableOpacity>
-
-            {/* Floating Compass Indicator */}
-            <View style={styles.gMapCompass}>
-              <Text style={styles.gMapCompassIcon}>🧭</Text>
-            </View>
-
-            {/* Google Maps Bottom Bar: Signature Google Watermark & Scale */}
-            <View style={styles.gMapBottomBar}>
-              <View style={styles.googleLogoRow}>
-                <Text style={[styles.gLetter, { color: '#4285F4' }]}>G</Text>
-                <Text style={[styles.gLetter, { color: '#EA4335' }]}>o</Text>
-                <Text style={[styles.gLetter, { color: '#FBBC04' }]}>o</Text>
-                <Text style={[styles.gLetter, { color: '#4285F4' }]}>g</Text>
-                <Text style={[styles.gLetter, { color: '#34A853' }]}>l</Text>
-                <Text style={[styles.gLetter, { color: '#EA4335' }]}>e</Text>
-              </View>
-              <View style={styles.gMapScaleContainer}>
-                <Text style={styles.gMapScaleText}>{Math.round(500 / mapZoom)} m</Text>
-                <View style={styles.gMapScaleRuler} />
-              </View>
-            </View>
           </View>
 
-          {/* Direct Google Maps Instant Search Banner */}
-          <TouchableOpacity
-            style={styles.gMapSearchAllBanner}
-            onPress={handleOpenGoogleMapsSearch}
-            activeOpacity={0.85}
-          >
-            <View style={styles.gMapSearchAllLeft}>
-              <Text style={styles.gMapSearchAllIcon}>🔍</Text>
-              <View style={styles.gMapSearchAllTextCol}>
-                <Text style={styles.gMapSearchAllTitle}>Search More on Google Maps</Text>
-                <Text style={styles.gMapSearchAllSubtitle}>
-                  View all local clinics, dispensaries, hospitals & medical stores near you
-                </Text>
-              </View>
-            </View>
-            <Text style={styles.gMapSearchAllChevron}>➔</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Horizontal Quick-Scroll Places Carousel */}
-        {safeZones.length > 0 && (
-          <View style={styles.carouselSection}>
-            <View style={styles.carouselHeaderRow}>
-              <View style={styles.carouselTitleCol}>
-                <Text style={styles.carouselHeaderTitle}>
-                  Discovered Safe Havens ({safeZones.length})
-                </Text>
-                <Text style={styles.carouselHeaderSub}>
-                  Swipe horizontally • Tap card to focus & center on map
-                </Text>
-              </View>
-            </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.carouselScrollContent}
-              nestedScrollEnabled={true}
-            >
-              {safeZones.map((zone) => {
-                const isSelected = selectedZone?.id === zone.id;
-                const pinStyle = getGooglePinStyle(zone.category, zone.isUserAdded);
-                const estMin = Math.max(2, Math.round((zone.distanceKm ?? 1) * 3.5));
-
-                return (
-                  <TouchableOpacity
-                    key={`carousel-${zone.id}`}
-                    style={[
-                      styles.carouselCard,
-                      isSelected && styles.carouselCardActive,
-                    ]}
-                    onPress={() => {
-                      AlertService.triggerHaptic();
-                      focusPlaceOnMap(zone);
-                    }}
-                    activeOpacity={0.85}
-                  >
-                    <View style={styles.carouselCardTop}>
-                      <View style={[styles.carouselIconBg, { backgroundColor: pinStyle.pinColor + '18' }]}>
-                        <Text style={styles.carouselIcon}>{pinStyle.icon}</Text>
-                      </View>
-                      <View style={[styles.carouselBadge, { backgroundColor: pinStyle.pinColor + '18' }]}>
-                        <Text style={[styles.carouselBadgeText, { color: pinStyle.pinColor }]}>
-                          {pinStyle.label.toUpperCase()}
-                        </Text>
-                      </View>
-                    </View>
-
-                    <Text style={styles.carouselName} numberOfLines={1}>
-                      {zone.name}
-                    </Text>
-                    <Text style={styles.carouselAddress} numberOfLines={1}>
-                      {zone.address}
-                    </Text>
-
-                    <View style={styles.carouselFooter}>
-                      <Text style={styles.carouselDistanceText}>
-                        📍 {zone.distanceKm !== undefined
-                          ? zone.distanceKm < 1
-                            ? `${Math.round(zone.distanceKm * 1000)} m`
-                            : `${zone.distanceKm.toFixed(1)} km`
-                          : 'Near'}
-                      </Text>
-                      <Text style={styles.carouselEtaText}>⏱ {estMin}m</Text>
-                    </View>
-
-                    {isSelected ? (
-                      <View style={styles.carouselFocusedBar}>
-                        <Text style={styles.carouselFocusedText}>✓ FOCUSED ON MAP</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.carouselTapHintBar}>
-                        <Text style={styles.carouselTapHintText}>Tap to center map ➔</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </View>
-        )}
-
-        {/* Selected Zone Quick Action Card */}
-        {selectedZone && (
-          <View style={[styles.selectedZoneCard, selectedZone.isUserAdded && styles.userShelterSelectedCard]}>
-            <View style={styles.selectedZoneHeader}>
-              <View style={[styles.selectedIconBg, selectedZone.isUserAdded && { backgroundColor: THEME.shelterPurpleBg }]}>
-                <Text style={styles.selectedZoneIcon}>
-                  {getCategoryColor(selectedZone.category, selectedZone.isUserAdded).icon}
-                </Text>
-              </View>
-              <View style={styles.selectedZoneInfo}>
-                <View style={styles.selectedTitleRow}>
-                  <Text style={styles.selectedZoneName} numberOfLines={1}>
+          {/* Minimalist Live Route & ETA Action Bar */}
+          {selectedZone && (
+            <View style={styles.activeRouteBar}>
+              <View style={styles.activeRouteInfo}>
+                <View style={styles.activeRouteTitleRow}>
+                  <Text style={styles.activeRouteName} numberOfLines={1}>
                     {selectedZone.name}
                   </Text>
-                  {selectedZone.isUserAdded ? (
-                    <View style={styles.userShelterBadge}>
-                      <Text style={styles.userShelterBadgeText}>MARKED SAFE HAVEN</Text>
-                    </View>
-                  ) : selectedZone.verified ? (
-                    <View style={styles.verifiedBadge}>
-                      <Text style={styles.verifiedBadgeText}>VERIFIED</Text>
-                    </View>
-                  ) : null}
-                </View>
-                <Text style={styles.selectedZoneAddress} numberOfLines={2}>
-                  {selectedZone.address}
-                </Text>
-                <View style={styles.selectedMetaRow}>
-                  {selectedZone.distanceKm !== undefined && (
-                    <Text style={styles.selectedDistance}>
-                      📍 {selectedZone.distanceKm < 1 ? `${Math.round(selectedZone.distanceKm * 1000)} m` : `${selectedZone.distanceKm.toFixed(1)} km`} away
+                  <View style={styles.activeRouteEtaBadge}>
+                    <Text style={styles.activeRouteEtaText}>
+                      ⏱️ {Math.max(2, Math.round((selectedZone.distanceKm ?? 1) * 3.5))} min
                     </Text>
-                  )}
-                  {selectedZone.isOpen24Hours && (
-                    <Text style={styles.open24Badge}>• Open 24/7</Text>
-                  )}
+                  </View>
                 </View>
+                <Text style={styles.activeRouteDist} numberOfLines={1}>
+                  📍 {selectedZone.distanceKm !== undefined ? `${selectedZone.distanceKm.toFixed(1)} km away` : 'Nearby'} • {selectedZone.address}
+                </Text>
               </View>
-            </View>
 
-            <View style={styles.actionButtonsRow}>
               <TouchableOpacity
-                style={[styles.navButton, selectedZone.isUserAdded && { backgroundColor: THEME.shelterPurple }]}
+                style={styles.startNavigationBtn}
                 onPress={() => handleNavigate(selectedZone)}
-                activeOpacity={0.8}
+                activeOpacity={0.85}
               >
-                <Text style={styles.navButtonIcon}>🧭</Text>
-                <Text style={styles.navButtonText}>Directions & Live Navigation</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.callButton}
-                onPress={() => handleCall(selectedZone.phone)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.callButtonIcon}>📞</Text>
-                <Text style={styles.callButtonText}>Call</Text>
+                <Text style={styles.startNavIcon}>▶</Text>
+                <Text style={styles.startNavText}>NAVIGATE</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        )}
-
-        {/* Safe Zones List Section */}
-        <View style={styles.listSectionHeader}>
-          <Text style={styles.listSectionTitle}>
-            Nearby Verified Safe Havens ({safeZones.length})
-          </Text>
-          <Text style={styles.listSectionSub}>
-            Ranked by immediate proximity to your location
-          </Text>
+          )}
         </View>
 
-        {safeZones.map((zone) => {
-          const catColor = getCategoryColor(zone.category, zone.isUserAdded);
-          const isSelected = selectedZone?.id === zone.id;
+        {/* ========================================================
+            4. QUICK-FOCUSED HORIZONTAL CAROUSEL
+        ======================================================== */}
+        <View style={styles.carouselSection}>
+          <Text style={styles.sectionHeaderTitle}>VERIFIED HAVENS IN VICINITY ({safeZones.length})</Text>
 
-          return (
-            <TouchableOpacity
-              key={zone.id}
-              style={[
-                styles.zoneCard,
-                isSelected && styles.zoneCardSelected,
-                zone.isUserAdded && styles.userZoneCard,
-              ]}
-              onPress={() => {
-                AlertService.triggerHaptic();
-                focusPlaceOnMap(zone);
-              }}
-              activeOpacity={0.85}
-            >
-              <View style={[styles.zoneIconContainer, { backgroundColor: catColor.bg }]}>
-                <Text style={styles.zoneIcon}>{catColor.icon}</Text>
-              </View>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.carouselDeck}
+          >
+            {safeZones.slice(0, 8).map((zone) => {
+              const catColor = getCategoryColor(zone.category, zone.isUserAdded);
+              const isSelected = selectedZone?.id === zone.id;
 
-              <View style={styles.zoneDetails}>
-                <View style={styles.zoneTitleRow}>
-                  <Text style={styles.zoneName} numberOfLines={1}>
+              return (
+                <TouchableOpacity
+                  key={`carousel-${zone.id}`}
+                  style={[styles.carouselCard, isSelected && styles.carouselCardSelected]}
+                  onPress={() => focusPlaceOnMap(zone)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.carouselCardTop}>
+                    <View style={[styles.carouselIconBadge, { backgroundColor: catColor.bg }]}>
+                      <Text style={styles.carouselIcon}>{catColor.icon}</Text>
+                    </View>
+                    <View style={styles.carouselDistPill}>
+                      <Text style={styles.carouselDistText}>
+                        {zone.distanceKm !== undefined
+                          ? zone.distanceKm < 1
+                            ? `${Math.round(zone.distanceKm * 1000)}m`
+                            : `${zone.distanceKm.toFixed(1)}km`
+                          : 'Near'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.carouselTitle} numberOfLines={1}>
                     {zone.name}
                   </Text>
-                  {zone.distanceKm !== undefined && (
-                    <Text style={[styles.zoneDistance, zone.isUserAdded && { color: THEME.shelterPurple }]}>
-                      {zone.distanceKm < 1 ? `${Math.round(zone.distanceKm * 1000)} m` : `${zone.distanceKm.toFixed(1)} km`}
+                  <Text style={styles.carouselAddress} numberOfLines={1}>
+                    {zone.address}
+                  </Text>
+
+                  <View style={styles.carouselFooter}>
+                    <Text style={[styles.carouselActionText, isSelected && { color: THEME.blue }]}>
+                      {isSelected ? '✓ FOCUSED' : 'Tap to Focus ➔'}
                     </Text>
-                  )}
-                </View>
-                <Text style={styles.zoneAddress} numberOfLines={1}>
-                  {zone.address}
-                </Text>
-                <View style={styles.zoneBadgeRow}>
-                  {zone.isUserAdded ? (
-                    <View style={[styles.catBadge, { backgroundColor: THEME.shelterPurpleBg }]}>
-                      <Text style={[styles.catBadgeText, { color: THEME.shelterPurple }]}>
-                        ⭐ YOUR SAFE HAVEN
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={[styles.catBadge, { backgroundColor: catColor.bg }]}>
-                      <Text style={[styles.catBadgeText, { color: catColor.text }]}>
-                        {zone.category.toUpperCase().replace('_', ' ')}
-                      </Text>
-                    </View>
-                  )}
-
-                  {zone.isOpen24Hours && (
-                    <View style={styles.hoursBadge}>
-                      <Text style={styles.hoursBadgeText}>24/7 ACCESSIBLE</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {zone.isUserAdded && (
-                <TouchableOpacity
-                  style={styles.deleteShelterBtn}
-                  onPress={() => handleDeleteShelter(zone.id, zone.name)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text style={styles.deleteShelterIcon}>🗑️</Text>
+                  </View>
                 </TouchableOpacity>
-              )}
+              );
+            })}
+          </ScrollView>
+        </View>
 
-              <TouchableOpacity
-                style={styles.zoneQuickNav}
-                onPress={() => handleNavigate(zone)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.quickNavIcon}>➔</Text>
-              </TouchableOpacity>
-            </TouchableOpacity>
-          );
-        })}
+        {/* ========================================================
+            5. STRUCTURED PLACES DIRECTORY (LIST TILES)
+        ======================================================== */}
+        <View style={styles.directorySection}>
+          <Text style={styles.sectionHeaderTitle}>FACILITY DIRECTORY</Text>
 
-        {/* Extra Bottom Cushion */}
-        <View style={styles.bottomSpacer} />
+          {safeZones.length === 0 ? (
+            <View style={styles.emptyStateCard}>
+              <Text style={styles.emptyIcon}>🛡️</Text>
+              <Text style={styles.emptyTitle}>No facilities found in this filter</Text>
+              <Text style={styles.emptySub}>Try searching for another landmark or select "All".</Text>
+            </View>
+          ) : (
+            safeZones.map((zone) => {
+              const catColor = getCategoryColor(zone.category, zone.isUserAdded);
+              const isSelected = selectedZone?.id === zone.id;
+
+              return (
+                <View
+                  key={zone.id}
+                  style={[styles.facilityTile, isSelected && styles.facilityTileSelected]}
+                >
+                  <View style={styles.facilityMainRow}>
+                    <View style={[styles.facilityIconCircle, { backgroundColor: catColor.bg }]}>
+                      <Text style={styles.facilityEmoji}>{catColor.icon}</Text>
+                    </View>
+
+                    <View style={styles.facilityContentCol}>
+                      <View style={styles.facilityTitleRow}>
+                        <Text style={styles.facilityName} numberOfLines={1}>
+                          {zone.name}
+                        </Text>
+                        {zone.isUserAdded && (
+                          <TouchableOpacity
+                            onPress={() => handleDeleteShelter(zone.id, zone.name)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <Text style={styles.deleteShelterText}>✕</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+
+                      <Text style={styles.facilityAddress} numberOfLines={2}>
+                        {zone.address}
+                      </Text>
+
+                      <View style={styles.facilityMetaRow}>
+                        <View style={styles.facilityMetaPill}>
+                          <Text style={styles.facilityMetaPillText}>
+                            📍 {zone.distanceKm !== undefined ? `${zone.distanceKm.toFixed(1)} km` : 'Nearby'}
+                          </Text>
+                        </View>
+                        {zone.isOpen24Hours && (
+                          <View style={styles.facility247Pill}>
+                            <Text style={styles.facility247Text}>24/7 OPEN</Text>
+                          </View>
+                        )}
+                        {zone.verified && (
+                          <View style={styles.verifiedShieldPill}>
+                            <Text style={styles.verifiedShieldText}>VERIFIED</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Action Buttons: Navigate & Call */}
+                  <View style={styles.facilityActionsRow}>
+                    <TouchableOpacity
+                      style={styles.facilityFocusBtn}
+                      onPress={() => focusPlaceOnMap(zone)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.facilityFocusText}>🗺️ Focus on Radar</Text>
+                    </TouchableOpacity>
+
+                    {zone.phone && zone.phone !== '112' && (
+                      <TouchableOpacity
+                        style={styles.facilityCallBtn}
+                        onPress={() => handleCall(zone.phone)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={styles.facilityCallText}>📞 Call</Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                      style={styles.facilityRouteBtn}
+                      onPress={() => handleNavigate(zone)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.facilityRouteText}>🧭 Route ➔</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </View>
+
+        <View style={{ height: 40 }} />
+        </Animated.View>
       </ScrollView>
+
+      {/* ========================================================
+          6. MODAL: 1-TAP INSTANT SAFE SPOT PINNING
+      ======================================================== */}
+      <Modal
+        visible={markModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMarkModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.markModalCard}>
+            <View style={styles.markModalHeader}>
+              <View>
+                <Text style={styles.markModalTitle}>📍 Pin Safe Spot at Current GPS</Text>
+                <Text style={styles.markModalSub}>Instant zero-typing disaster shelter bookmarking</Text>
+              </View>
+              <TouchableOpacity onPress={() => setMarkModalVisible(false)}>
+                <Text style={styles.markModalClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.gpsSnapshotBox}>
+              <Text style={styles.gpsSnapshotLabel}>CURRENT GPS FIX</Text>
+              <Text style={styles.gpsSnapshotCoords}>
+                {userCoords
+                  ? `${userCoords.latitude.toFixed(4)}, ${userCoords.longitude.toFixed(4)} • ${userCoords.subLocality || userCoords.city || 'Live Location'}`
+                  : 'Acquiring GPS fix...'}
+              </Text>
+            </View>
+
+            <Text style={styles.instantTagHeading}>SELECT PRESET TO PIN IMMEDIATELY:</Text>
+            <View style={styles.instantTagsGrid}>
+              {QUICK_TAGS.map((tag) => (
+                <TouchableOpacity
+                  key={tag.label}
+                  style={styles.instantTagButton}
+                  onPress={() => handleInstantMarkCurrentLocation(tag.label)}
+                  disabled={markingSpot}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.instantTagEmoji}>{tag.icon}</Text>
+                  <Text style={styles.instantTagLabel}>{tag.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {markingSpot && (
+              <View style={styles.markingProgressRow}>
+                <ActivityIndicator size="small" color={THEME.blue} />
+                <Text style={styles.markingProgressText}>Writing to encrypted local SQLite database...</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (THEME: ThemeColors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: THEME.background,
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
     backgroundColor: THEME.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
   },
   loadingText: {
-    marginTop: 12,
-    fontSize: 14,
+    fontSize: 13,
+    fontWeight: '700',
     color: THEME.textSecondary,
-    fontWeight: '600',
-  },
-  topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 10,
-    backgroundColor: THEME.cardBg,
-    borderBottomWidth: 1,
-    borderBottomColor: THEME.border,
-  },
-  topBarTextCol: {
-    flex: 1,
-  },
-  topBarTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: THEME.textPrimary,
-  },
-  topBarSubtitle: {
-    fontSize: 12,
-    color: THEME.safeGreen,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  refreshBtn: {
-    backgroundColor: '#F1F5F9',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  refreshBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: THEME.secondary,
   },
   mainScrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
+    paddingHorizontal: 16,
+    paddingTop: 8,
     paddingBottom: 40,
   },
 
-  // Instant 1-Tap Disaster Safe Spot Marker Styles
-  instantMarkContainer: {
-    marginBottom: 14,
-  },
-  instantMarkBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#7C3AED',
-    borderRadius: 14,
-    padding: 12,
-    shadowColor: '#7C3AED',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  instantMarkIconBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  instantMarkIcon: {
-    fontSize: 20,
-  },
-  instantMarkTextCol: {
-    flex: 1,
-  },
-  instantMarkTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
-  },
-  instantMarkSub: {
-    fontSize: 10,
-    color: '#DDD6FE',
-    marginTop: 2,
-    fontWeight: '500',
-  },
-  instantMarkPill: {
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    marginLeft: 6,
-  },
-  instantMarkPillText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#7C3AED',
-  },
-  quickTagsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 8,
-    flexWrap: 'wrap',
-  },
-  quickTagsLabel: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: THEME.textLight,
-    letterSpacing: 0.5,
-    marginRight: 2,
-  },
-  quickTagChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F3E8FF',
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    gap: 4,
-  },
-  quickTagChipIcon: {
-    fontSize: 11,
-  },
-  quickTagChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#6D28D9',
-  },
-
-  gpsWarningBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF2F2',
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 12,
-  },
-  gpsWarningIcon: { fontSize: 18, marginRight: 8 },
-  gpsWarningTextCol: { flex: 1 },
-  gpsWarningTitle: { fontSize: 12, fontWeight: '800', color: '#B91C1C' },
-  gpsWarningSub: { fontSize: 10, color: '#7F1D1D', marginTop: 1 },
-  gpsWarningArrow: { fontSize: 16, marginLeft: 6 },
-
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: THEME.border,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    height: 42,
-    marginBottom: 12,
-  },
-  searchIcon: { fontSize: 15, marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 13, color: THEME.textPrimary },
-  clearIcon: { fontSize: 14, color: THEME.textLight, padding: 4 },
-
-  categoriesScroll: {
-    paddingBottom: 12,
-    gap: 8,
-  },
-  categoryChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: THEME.border,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-  },
-  categoryChipActive: {
-    backgroundColor: THEME.secondary,
-    borderColor: THEME.secondary,
-  },
-  categoryIcon: { fontSize: 14, marginRight: 6 },
-  categoryLabel: { fontSize: 12, fontWeight: '700', color: THEME.textSecondary },
-  categoryLabelActive: { color: '#FFFFFF' },
-
-  /* --- GOOGLE MAPS AUTHENTIC STYLING --- */
-  googleMapCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#DADCE0',
-    marginBottom: 16,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 3,
-    overflow: 'hidden',
-  },
-  gMapTopRow: {
+  // Top Bar
+  topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
     paddingVertical: 10,
-    backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F3F4',
+    borderBottomColor: THEME.cardBorder,
   },
-  gMapTypeToggle: {
-    flexDirection: 'row',
-    backgroundColor: '#F1F3F4',
-    borderRadius: 8,
-    padding: 2,
+  topBarLeftCol: {
+    flex: 1,
   },
-  gMapTypeBtn: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: 6,
+  topBarTag: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: THEME.emerald,
+    letterSpacing: 1,
   },
-  gMapTypeBtnActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.12,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  gMapTypeBtnText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#5F6368',
-  },
-  gMapTypeBtnTextActive: {
-    color: '#1A73E8',
+  topBarLocation: {
+    fontSize: 14,
     fontWeight: '800',
+    color: THEME.textPrimary,
+    marginTop: 1,
   },
-  gMapOpenAppBtn: {
+  topBarRightRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F0FE',
+    gap: 8,
+  },
+  markHavenHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.emeraldBg,
+    borderWidth: 1,
+    borderColor: THEME.emeraldBorder,
     paddingVertical: 5,
     paddingHorizontal: 10,
     borderRadius: 8,
     gap: 4,
   },
-  gMapOpenAppIcon: {
+  markHavenHeaderIcon: {
+    fontSize: 10,
+  },
+  markHavenHeaderText: {
     fontSize: 11,
+    fontWeight: '800',
+    color: THEME.emerald,
   },
-  gMapOpenAppText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1A73E8',
+  refreshHeaderBtn: {
+    backgroundColor: THEME.cardElevated,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
   },
-  gMapRouteCard: {
-    backgroundColor: '#1E293B',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+  refreshHeaderText: {
+    fontSize: 12,
   },
-  gMapRouteInfo: {
-    marginBottom: 8,
-  },
-  gMapRoutePathRow: {
+
+  // GPS Disabled Warning
+  gpsDisabledBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 6,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 12,
+    gap: 10,
   },
-  gMapRoutePathDots: {
-    alignItems: 'center',
-    width: 14,
+  gpsDisabledIcon: {
+    fontSize: 18,
   },
-  gMapRouteDotOrigin: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#60A5FA',
-  },
-  gMapRouteDotDash: {
-    width: 1.5,
-    height: 10,
-    backgroundColor: '#94A3B8',
-    marginVertical: 1,
-  },
-  gMapRouteDotDest: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EF4444',
-  },
-  gMapRoutePathTexts: {
+  gpsDisabledTextCol: {
     flex: 1,
   },
-  gMapRouteOriginText: {
-    fontSize: 11,
-    color: '#94A3B8',
-    fontWeight: '600',
-  },
-  gMapRouteDestText: {
-    fontSize: 13,
-    color: '#FFFFFF',
+  gpsDisabledTitle: {
+    fontSize: 12,
     fontWeight: '800',
+    color: '#FCA5A5',
+  },
+  gpsDisabledSub: {
+    fontSize: 10,
+    color: THEME.textSecondary,
     marginTop: 1,
   },
-  gMapEtaRow: {
+  gpsDisabledArrow: {
+    fontSize: 16,
+  },
+
+  // Search Bar
+  searchBarContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-  },
-  gMapEtaBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0F766E',
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    gap: 4,
-  },
-  gMapEtaTime: {
-    color: '#F0FDFA',
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  gMapEtaDistance: {
-    color: '#CCFBF1',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  gMapFastestRouteText: {
-    color: '#4ADE80',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  gMapStartNavBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0284C7',
-    paddingVertical: 10,
-    borderRadius: 10,
-    gap: 6,
-    shadowColor: '#0284C7',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.35,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  gMapStartNavIcon: {
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  gMapStartNavText: {
-    color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  gMapCanvas: {
-    width: '100%',
-    height: 290,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  gMapCanvasDefault: {
-    backgroundColor: '#F1F5F9',
-  },
-  gMapCanvasSatellite: {
-    backgroundColor: '#0F172A',
-  },
-  gMapRadarRing: {
-    position: 'absolute',
-    top: 140,
-    left: 160,
+    backgroundColor: THEME.cardBg,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.22)',
-    borderStyle: 'dashed',
-    transform: [{ translateX: -45 }, { translateY: -45 }],
+    borderColor: THEME.cardBorder,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
   },
-  gMapRadarLabel: {
-    position: 'absolute',
-    left: 164,
-    fontSize: 8,
-    fontWeight: '800',
-    color: '#64748B',
-    backgroundColor: 'rgba(255, 255, 255, 0.75)',
-    paddingHorizontal: 3,
-    borderRadius: 3,
+  searchIcon: {
+    fontSize: 14,
+    marginRight: 8,
   },
-  gMapUserDotWrapper: {
-    position: 'absolute',
-    top: 125,
-    left: '48%',
-    marginLeft: -15,
+  searchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: THEME.textPrimary,
+    padding: 0,
+  },
+  clearSearchIcon: {
+    fontSize: 14,
+    color: THEME.textMuted,
+    paddingHorizontal: 4,
+  },
+
+  // Category Filter Chips
+  categoryChipsScroll: {
+    gap: 6,
+    marginBottom: 16,
+  },
+  categoryFilterChip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    zIndex: 40,
-  },
-  gMapUserBeam: {
-    position: 'absolute',
-    top: -12,
-    width: 0,
-    height: 0,
-    borderLeftWidth: 12,
-    borderRightWidth: 12,
-    borderTopWidth: 20,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderTopColor: 'rgba(66, 133, 244, 0.25)',
-    transform: [{ rotate: '-35deg' }],
-  },
-  gMapUserPulseRing: {
-    position: 'absolute',
-    top: -6,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(66, 133, 244, 0.22)',
-  },
-  gMapUserBlueDot: {
-    width: 16,
-    height: 16,
+    backgroundColor: THEME.cardBg,
     borderRadius: 8,
-    backgroundColor: '#1A73E8',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 4,
-  },
-  gMapUserLabelPill: {
-    backgroundColor: 'rgba(26, 115, 232, 0.95)',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 8,
-    marginTop: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  gMapUserLabelText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#FFFFFF',
-  },
-  gMapMarkerAnchor: {
-    position: 'absolute',
-    alignItems: 'center',
-  },
-  gMapCallout: {
-    position: 'absolute',
-    bottom: 42,
-    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
     paddingVertical: 6,
     paddingHorizontal: 10,
-    borderRadius: 10,
-    width: 140,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: '#E8EAED',
-    alignItems: 'center',
+    gap: 5,
   },
-  gMapCalloutRow: {
+  categoryFilterChipActive: {
+    backgroundColor: THEME.cardElevated,
+    borderColor: THEME.blue,
+  },
+  categoryFilterIcon: {
+    fontSize: 12,
+  },
+  categoryFilterText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.textSecondary,
+  },
+  categoryFilterTextActive: {
+    color: THEME.textPrimary,
+    fontWeight: '800',
+  },
+
+  // Map Console Card
+  mapConsoleCard: {
+    backgroundColor: THEME.cardBg,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    overflow: 'hidden',
+    marginBottom: 20,
+  },
+  mapConsoleHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    width: '100%',
-    marginBottom: 2,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.cardBorder,
   },
-  gMapCalloutTitle: {
+  mapModeToggle: {
+    flexDirection: 'row',
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 8,
+    padding: 2,
+    gap: 2,
+  },
+  mapModeBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  mapModeBtnActive: {
+    backgroundColor: '#1E293B',
+  },
+  mapModeText: {
     fontSize: 10,
+    fontWeight: '700',
+    color: THEME.textMuted,
+  },
+  mapModeTextActive: {
+    color: THEME.textPrimary,
     fontWeight: '800',
-    color: '#202124',
-    flex: 1,
-    marginRight: 4,
   },
-  gMapCalloutDist: {
-    fontSize: 9,
+  mapControlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  mapToolBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
+    backgroundColor: THEME.cardElevated,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapToolBtnText: {
+    fontSize: 14,
     fontWeight: '700',
-    color: '#1A73E8',
+    color: THEME.textPrimary,
   },
-  gMapCalloutAction: {
+  mapRecenterBtn: {
+    backgroundColor: THEME.blueBg,
+    borderColor: THEME.blueBorder,
+  },
+  mapRecenterIcon: {
+    fontSize: 14,
+    color: THEME.blue,
+    fontWeight: '800',
+  },
+
+  // Tactical Canvas
+  tacticalCanvas: {
+    width: '100%',
+    height: 260,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  canvasDefault: {
+    backgroundColor: THEME.mapCanvas,
+  },
+  canvasSatellite: {
+    backgroundColor: THEME.mapSatelliteCanvas,
+  },
+  tacticalRing: {
+    position: 'absolute',
+    borderWidth: 1,
+    borderColor: THEME.radarGrid,
+    borderStyle: 'dashed',
+  },
+  tacticalRingLabel: {
+    position: 'absolute',
+    fontSize: 8,
+    fontWeight: '800',
+    color: THEME.blue,
+    letterSpacing: 0.5,
+  },
+  userAnchorWrapper: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 40,
+  },
+  userPulseRing: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: THEME.blueBg,
+  },
+  userCoreDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: THEME.blue,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  markerAnchor: {
+    position: 'absolute',
+    alignItems: 'center',
+    width: 28,
+    height: 32,
+  },
+  markerCallout: {
+    position: 'absolute',
+    bottom: 36,
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: THEME.blue,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    minWidth: 140,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  markerCalloutTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  markerCalloutDist: {
     fontSize: 9,
-    fontWeight: '700',
-    color: '#1A73E8',
+    color: THEME.blue,
+    marginTop: 1,
   },
-  gMapCalloutArrow: {
+  markerCalloutArrow: {
     position: 'absolute',
     bottom: -6,
     width: 0,
@@ -1630,400 +1369,137 @@ const styles = StyleSheet.create({
     borderTopWidth: 6,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: '#FFFFFF',
+    borderTopColor: THEME.cardElevated,
   },
-  gMapTeardropWrapper: {
-    alignItems: 'center',
-  },
-  gMapTeardropSelected: {
-    transform: [{ scale: 1.25 }],
-  },
-  gMapTeardropHead: {
+  teardropPin: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#FFFFFF',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.35,
     shadowRadius: 4,
-    elevation: 5,
+    elevation: 6,
   },
-  gMapTeardropHeadActive: {
-    borderColor: '#FDE047',
-    borderWidth: 2.5,
+  teardropPinSelected: {
+    transform: [{ scale: 1.25 }],
+    borderColor: '#38BDF8',
+    borderWidth: 3,
   },
-  gMapTeardropIcon: {
+  pinHaloRing: {
+    position: 'absolute',
+    top: -4,
+    left: -4,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  tacticalRadarWave: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 1.5,
+    borderColor: '#38BDF8',
+    backgroundColor: 'rgba(56, 189, 248, 0.08)',
+  },
+  teardropIcon: {
     fontSize: 13,
   },
-  gMapTeardropPoint: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 5,
-    borderRightWidth: 5,
-    borderTopWidth: 8,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    marginTop: -2,
-  },
-  gMapPinShadow: {
-    width: 12,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    marginTop: 1,
-  },
-  gMapZoomControls: {
-    position: 'absolute',
-    right: 12,
-    bottom: 50,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: '#E8EAED',
-    overflow: 'hidden',
-  },
-  gMapZoomBtn: {
-    width: 32,
-    height: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  gMapZoomText: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#3C4043',
-  },
-  gMapZoomDivider: {
-    height: 1,
-    backgroundColor: '#E8EAED',
-    width: '100%',
-  },
-  gMapRecenterFab: {
-    position: 'absolute',
-    right: 12,
-    bottom: 12,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-    borderWidth: 1,
-    borderColor: '#E8EAED',
-  },
-  gMapRecenterIcon: {
-    fontSize: 18,
-    color: '#1A73E8',
-    fontWeight: '800',
-  },
-  gMapCompass: {
-    position: 'absolute',
-    top: 10,
-    right: 12,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  gMapCompassIcon: {
-    fontSize: 14,
-  },
-  gMapBottomBar: {
-    position: 'absolute',
-    bottom: 6,
-    left: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  googleLogoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.75)',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-  },
-  gLetter: {
-    fontSize: 11,
-    fontWeight: '900',
-  },
-  gMapScaleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.75)',
-    paddingHorizontal: 4,
-    paddingVertical: 1,
-    borderRadius: 4,
-    gap: 4,
-  },
-  gMapScaleText: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: '#5F6368',
-  },
-  gMapScaleRuler: {
-    width: 20,
-    height: 2,
-    backgroundColor: '#5F6368',
-  },
-  gMapSearchAllBanner: {
+
+  // Active Route Bar
+  activeRouteBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: THEME.cardElevated,
     borderTopWidth: 1,
-    borderTopColor: '#DBEAFE',
-  },
-  gMapSearchAllLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    gap: 8,
-  },
-  gMapSearchAllIcon: {
-    fontSize: 16,
-  },
-  gMapSearchAllTextCol: {
-    flex: 1,
-  },
-  gMapSearchAllTitle: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#1D4ED8',
-  },
-  gMapSearchAllSubtitle: {
-    fontSize: 10,
-    color: '#3B82F6',
-    marginTop: 1,
-  },
-  gMapSearchAllChevron: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#1D4ED8',
-    marginLeft: 6,
-  },
-
-  selectedZoneCard: {
-    backgroundColor: THEME.cardBg,
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 2,
-    borderColor: THEME.primary,
-    marginBottom: 16,
-  },
-  userShelterSelectedCard: {
-    borderColor: '#7C3AED',
-  },
-  selectedZoneHeader: {
-    flexDirection: 'row',
-    marginBottom: 14,
-  },
-  selectedIconBg: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: '#FEE2E2',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  selectedZoneIcon: { fontSize: 22 },
-  selectedZoneInfo: { flex: 1 },
-  selectedTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  selectedZoneName: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: THEME.textPrimary,
-    flex: 1,
-  },
-  verifiedBadge: {
-    backgroundColor: THEME.safeGreenBg,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-  },
-  verifiedBadgeText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: THEME.safeGreen,
-  },
-  userShelterBadge: {
-    backgroundColor: '#F3E8FF',
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    borderRadius: 4,
-  },
-  userShelterBadgeText: {
-    fontSize: 8,
-    fontWeight: '800',
-    color: '#7C3AED',
-  },
-  selectedZoneAddress: {
-    fontSize: 12,
-    color: THEME.textSecondary,
-    marginTop: 2,
-  },
-  selectedMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 4,
-  },
-  selectedDistance: { fontSize: 12, fontWeight: '700', color: THEME.primary },
-  open24Badge: { fontSize: 11, fontWeight: '700', color: THEME.safeGreen },
-  actionButtonsRow: { flexDirection: 'row', gap: 10 },
-  navButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: THEME.primary,
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 6,
-  },
-  navButtonIcon: { fontSize: 16 },
-  navButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
-  callButton: {
-    width: 80,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EEF2F6',
-    paddingVertical: 12,
-    borderRadius: 12,
-    gap: 4,
-  },
-  callButtonIcon: { fontSize: 14 },
-  callButtonText: { color: THEME.secondary, fontSize: 13, fontWeight: '700' },
-
-  listSectionHeader: { marginBottom: 12 },
-  listSectionTitle: { fontSize: 17, fontWeight: '800', color: THEME.textPrimary },
-  listSectionSub: { fontSize: 12, color: THEME.textSecondary, marginTop: 2 },
-
-  zoneCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: THEME.cardBg,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: THEME.border,
-    marginBottom: 10,
-  },
-  userZoneCard: {
-    borderColor: '#DDD6FE',
-    backgroundColor: '#FAF5FF',
-  },
-  zoneCardSelected: {
-    borderColor: THEME.primary,
-    backgroundColor: '#FFF5F5',
-  },
-  zoneIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  zoneIcon: { fontSize: 20 },
-  zoneDetails: { flex: 1 },
-  zoneTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  zoneName: { fontSize: 14, fontWeight: '700', color: THEME.textPrimary, flex: 1, marginRight: 8 },
-  zoneDistance: { fontSize: 12, fontWeight: '800', color: THEME.primary },
-  zoneAddress: { fontSize: 12, color: THEME.textSecondary, marginTop: 2 },
-  zoneBadgeRow: { flexDirection: 'row', gap: 6, marginTop: 6 },
-  catBadge: { paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
-  catBadgeText: { fontSize: 9, fontWeight: '800' },
-  hoursBadge: { backgroundColor: '#F1F5F9', paddingVertical: 2, paddingHorizontal: 6, borderRadius: 4 },
-  hoursBadgeText: { fontSize: 9, fontWeight: '700', color: THEME.textSecondary },
-  deleteShelterBtn: { padding: 6, marginRight: 4 },
-  deleteShelterIcon: { fontSize: 14 },
-  gMapHintBadge: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    backgroundColor: 'rgba(30, 41, 59, 0.75)',
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    zIndex: 30,
-  },
-  gMapHintText: {
-    color: '#FFFFFF',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  carouselSection: {
-    marginBottom: 16,
-  },
-  carouselHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-    paddingHorizontal: 2,
-  },
-  carouselTitleCol: {
-    flex: 1,
-  },
-  carouselHeaderTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: THEME.textPrimary,
-  },
-  carouselHeaderSub: {
-    fontSize: 11,
-    color: THEME.textSecondary,
-    marginTop: 1,
-  },
-  carouselScrollContent: {
-    paddingRight: 16,
+    borderTopColor: THEME.cardBorder,
+    padding: 12,
     gap: 10,
   },
-  carouselCard: {
-    width: 190,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1.5,
-    borderColor: '#E2E8F0',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
+  activeRouteInfo: {
+    flex: 1,
   },
-  carouselCardActive: {
-    borderColor: '#1A73E8',
-    backgroundColor: '#F8FAFF',
-    shadowOpacity: 0.15,
-    elevation: 4,
+  activeRouteTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
+  activeRouteName: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  activeRouteEtaBadge: {
+    backgroundColor: THEME.emeraldBg,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: THEME.emeraldBorder,
+  },
+  activeRouteEtaText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.emerald,
+  },
+  activeRouteDist: {
+    fontSize: 10,
+    color: THEME.textSecondary,
+  },
+  startNavigationBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.blue,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    gap: 5,
+  },
+  startNavIcon: {
+    fontSize: 10,
+    color: '#FFFFFF',
+  },
+  startNavText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: 0.5,
+  },
+
+  // Carousel
+  carouselSection: {
+    marginBottom: 20,
+  },
+  sectionHeaderTitle: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.textSecondary,
+    letterSpacing: 1.2,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+  },
+  carouselDeck: {
+    gap: 10,
+    paddingRight: 16,
+  },
+  carouselCard: {
+    width: width * 0.48,
+    backgroundColor: THEME.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 12,
+  },
+  carouselCardSelected: {
+    borderColor: THEME.blue,
+    backgroundColor: THEME.cardElevated,
   },
   carouselCardTop: {
     flexDirection: 'row',
@@ -2031,92 +1507,312 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
-  carouselIconBg: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    justifyContent: 'center',
+  carouselIconBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   carouselIcon: {
-    fontSize: 16,
+    fontSize: 13,
   },
-  carouselBadge: {
+  carouselDistPill: {
+    backgroundColor: THEME.cardElevated,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 6,
+    borderRadius: 4,
   },
-  carouselBadgeText: {
+  carouselDistText: {
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: '700',
+    color: THEME.textSecondary,
   },
-  carouselName: {
-    fontSize: 13,
+  carouselTitle: {
+    fontSize: 12,
     fontWeight: '800',
     color: THEME.textPrimary,
     marginBottom: 2,
   },
   carouselAddress: {
     fontSize: 10,
-    color: THEME.textSecondary,
+    color: THEME.textMuted,
+    lineHeight: 14,
     marginBottom: 8,
   },
   carouselFooter: {
+    borderTopWidth: 1,
+    borderTopColor: THEME.divider,
+    paddingTop: 6,
+  },
+  carouselActionText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: THEME.textSecondary,
+  },
+
+  // Directory Section
+  directorySection: {
+    marginBottom: 20,
+  },
+  emptyStateCard: {
+    backgroundColor: THEME.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 24,
+    alignItems: 'center',
+  },
+  emptyIcon: {
+    fontSize: 28,
+    marginBottom: 8,
+  },
+  emptyTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+    marginBottom: 4,
+  },
+  emptySub: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    textAlign: 'center',
+  },
+  facilityTile: {
+    backgroundColor: THEME.cardBg,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 12,
+    marginBottom: 10,
+  },
+  facilityTileSelected: {
+    borderColor: THEME.blue,
+  },
+  facilityMainRow: {
+    flexDirection: 'row',
+    marginBottom: 10,
+  },
+  facilityIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  facilityEmoji: {
+    fontSize: 17,
+  },
+  facilityContentCol: {
+    flex: 1,
+  },
+  facilityTitleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
   },
-  carouselDistanceBadge: {
+  facilityName: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+    flex: 1,
+  },
+  deleteShelterText: {
+    fontSize: 14,
+    color: THEME.primary,
+    paddingLeft: 6,
+  },
+  facilityAddress: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    lineHeight: 15,
+    marginTop: 2,
+    marginBottom: 6,
+  },
+  facilityMetaRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+  },
+  facilityMetaPill: {
+    backgroundColor: THEME.cardElevated,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  facilityMetaPillText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: THEME.textSecondary,
+  },
+  facility247Pill: {
+    backgroundColor: THEME.emeraldBg,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  facility247Text: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.emerald,
+  },
+  verifiedShieldPill: {
+    backgroundColor: THEME.blueBg,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  verifiedShieldText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: THEME.blue,
+  },
+  facilityActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: THEME.divider,
+    paddingTop: 8,
+  },
+  facilityFocusBtn: {
+    flex: 1,
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 8,
+    paddingVertical: 6,
     alignItems: 'center',
   },
-  carouselDistanceText: {
+  facilityFocusText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#1A73E8',
+    color: THEME.textSecondary,
   },
-  carouselEtaText: {
+  facilityCallBtn: {
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  facilityCallText: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#0F766E',
+    color: THEME.emerald,
   },
-  carouselFocusedBar: {
-    marginTop: 6,
-    backgroundColor: '#E8F0FE',
-    paddingVertical: 3,
-    borderRadius: 4,
+  facilityRouteBtn: {
+    backgroundColor: THEME.blueBg,
+    borderWidth: 1,
+    borderColor: THEME.blueBorder,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
     alignItems: 'center',
   },
-  carouselFocusedText: {
-    fontSize: 9,
-    fontWeight: '900',
-    color: '#1A73E8',
-    letterSpacing: 0.5,
+  facilityRouteText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: THEME.blue,
   },
-  carouselTapHintBar: {
-    marginTop: 6,
-    backgroundColor: '#F8FAFC',
-    paddingVertical: 3,
-    borderRadius: 4,
-    alignItems: 'center',
-  },
-  carouselTapHintText: {
-    fontSize: 9,
-    fontWeight: '600',
-    color: '#64748B',
-  },
-  zoneQuickNav: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#F1F5F9',
+
+  // Modal: Mark Safe Spot
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 4,
+    padding: 20,
   },
-  quickNavIcon: { fontSize: 14, color: THEME.secondary, fontWeight: '800' },
-  bottomSpacer: { height: 60 },
+  markModalCard: {
+    width: '100%',
+    backgroundColor: THEME.cardBg,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 20,
+  },
+  markModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  markModalTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: THEME.textPrimary,
+  },
+  markModalSub: {
+    fontSize: 11,
+    color: THEME.textSecondary,
+    marginTop: 2,
+  },
+  markModalClose: {
+    fontSize: 18,
+    color: THEME.textSecondary,
+    padding: 4,
+  },
+  gpsSnapshotBox: {
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+  },
+  gpsSnapshotLabel: {
+    fontSize: 8,
+    fontWeight: '800',
+    color: THEME.blue,
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  gpsSnapshotCoords: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: THEME.textPrimary,
+  },
+  instantTagHeading: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: THEME.textSecondary,
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  instantTagsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  instantTagButton: {
+    flex: 1,
+    minWidth: (width - 76) / 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: THEME.cardElevated,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: THEME.cardBorder,
+    padding: 10,
+    gap: 8,
+  },
+  instantTagEmoji: {
+    fontSize: 16,
+  },
+  instantTagLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: THEME.textPrimary,
+  },
+  markingProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 4,
+  },
+  markingProgressText: {
+    fontSize: 11,
+    color: THEME.blue,
+    fontWeight: '600',
+  },
 });
